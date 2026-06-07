@@ -5,7 +5,7 @@ WordPress `lowongan` drafts.
 
 The service:
 
-- Reads flyer images with Gemini.
+- Reads flyer images with OpenCode Zen first, then OpenCode Go fallback.
 - Loads current taxonomy options from WordPress before extraction.
 - Applies the bundled `job-copywriter` and `agent-postdraft` skills.
 - Normalizes fields to the WordPress ingest schema.
@@ -16,7 +16,7 @@ The service:
 
 - Python 3.14
 - [`uv`](https://docs.astral.sh/uv/)
-- Google AI Studio API key
+- OpenCode Zen or Go API key
 - WordPress with the WPLokerBJM GraphQL JWT mutation and REST ingest endpoints
 - Telegram bot token from BotFather
 
@@ -36,7 +36,17 @@ WPLBJM_JWT_PROD=
 WP_LOGIN_USERNAME=
 WP_LOGIN_PASSWORD=
 
-AI_STUDIO_KEY=
+AI_PROVIDER=opencode
+OPENCODE_API_KEY=
+OPENCODE_ZEN_KEY=
+OPENCODE_GO_KEY=
+OPENCODE_MODEL_CHAIN=zen:mimo-v2.5-free:chat,go:minimax-m3:messages,go:mimo-v2.5:chat
+OPENCODE_VISION_MODE=analyze
+ALLOW_DIRECT_IMAGE_FALLBACK=1
+ALLOW_GEMINI_FALLBACK=
+GOOGLE_AI_STUDIO_KEY=
+GEMINI_API_KEY=
+GEMINI_MODEL=
 
 TELEGRAM_USERNAME=allowed_username_without_at
 TELEGRAM_BOT_TOKEN=
@@ -60,8 +70,33 @@ SKILL_MD_PATH=.agents/skills/agent-postdraft/SKILL.md
 - `WP_LOGIN_USERNAME` and `WP_LOGIN_PASSWORD` are optional fallbacks for
   `/refresh_jwt` when credentials are not included in the command.
 - `WPLBJM_WORDPRESS_DOMAIN` is used by the GraphQL JWT mutation.
-- `GEMINI_API_KEY` may be used instead of `AI_STUDIO_KEY`.
-- `GEMINI_MODEL` may override the default `gemini-2.5-flash`.
+- `AI_PROVIDER` defaults to `opencode`. Set it to `gemini` only when you want
+  to bypass OpenCode.
+- `OPENCODE_MODEL_CHAIN` is a comma-separated fallback list in
+  `provider:model:endpoint_style` format. The default tries Zen MiMo V2.5,
+  then Go MiniMax M3, then Go MiMo V2.5. The list is shuffled for each flyer
+  unless `--model` is provided.
+- `OPENCODE_ZEN_KEY` is preferred for Zen requests, and `OPENCODE_GO_KEY` is
+  preferred for Go requests. `OPENCODE_API_KEY` is still accepted as a shared
+  fallback when one key works for both.
+- `GOOGLE_AI_STUDIO_KEY` powers `opencode-vision`. The app maps it to
+  `GOOGLE_API_KEY` at runtime when Google-specific env vars are not already
+  set. Legacy `AI_STUDIO_KEY` is still accepted as a fallback.
+- If your key comes from an OpenCode Go subscription, put it in
+  `OPENCODE_GO_KEY`. If it comes from Zen billing, put it in
+  `OPENCODE_ZEN_KEY`.
+- `OPENCODE_VISION_MODE` controls the image preprocessor: `analyze` is the
+  default, with `ocr` and `describe` available for troubleshooting.
+- `ALLOW_DIRECT_IMAGE_FALLBACK=1` lets OpenCode receive the image directly
+  when `opencode-vision` is rate-limited or unavailable. Set it to `0` to
+  require the preprocessor.
+- `ALLOW_GEMINI_FALLBACK=1` allows Gemini as the last fallback after all
+  OpenCode attempts fail.
+- `GEMINI_API_KEY` may be used instead of `GOOGLE_AI_STUDIO_KEY` when Gemini
+  fallback or `AI_PROVIDER=gemini` is enabled.
+- `GEMINI_MODEL` may override the Gemini default `gemini-2.5-flash`.
+- `opencode-vision` turns the flyer image into text first, so OpenCode Zen/Go
+  models receive text-only requests instead of raw image payloads.
 
 ## Skill Loading
 
@@ -91,14 +126,14 @@ uv sync
 Extract and preview a flyer without posting:
 
 ```bash
-uv run python agent.py path/to/flyer.webp --target DEV
+uv run python agent-telegram.py path/to/flyer.webp --target DEV
 ```
 
 Create a WordPress draft:
 
 ```bash
-uv run python agent.py path/to/flyer.webp --target DEV --post
-uv run python agent.py path/to/flyer.webp --target PROD --post
+uv run python agent-telegram.py path/to/flyer.webp --target DEV --post
+uv run python agent-telegram.py path/to/flyer.webp --target PROD --post
 ```
 
 `DEV` is the default target. Posting to WordPress only occurs when `--post` is
@@ -113,7 +148,7 @@ Recommended settings:
 ```text
 Runtime: Python
 Build Command: python -m pip install uv==0.11.19 && python -m uv sync --frozen
-Start Command: .venv/bin/python agent.py --serve
+Start Command: .venv/bin/python agent-telegram.py --serve
 Health Check Path: /healthz
 ```
 

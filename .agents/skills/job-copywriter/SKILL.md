@@ -40,6 +40,29 @@ Important:
 
 Output hanya field yang ada datanya dari input atau sumber terverifikasi. Hilangkan field kosong.
 
+Untuk automation/REST ingest, output JSON **wajib** memakai key snake_case persis
+di bawah ini. Jangan membuat alias, camelCase, atau sinonim bahasa Indonesia
+seperti `kualifikasi`, `deskripsi`, `kontak`, `gaji`, `alamat`,
+`lokasi_kerja`, `berkas_lamaran`, atau `info_lainnya`.
+
+Mapping wajib:
+
+- Kualifikasi, syarat, dokumen, skill kandidat -> `persyaratan`
+- Tugas, tanggung jawab, scope kerja -> `deskripsi_pekerjaan`
+- Cara daftar, alamat kirim lamaran, instruksi kontak -> `cara_melamar`
+- Gaji/fasilitas/tunjangan non-angka -> `benefit`
+- Gaji angka eksplisit -> `gaji_minimal` / `gaji_maksimal`
+- WhatsApp/telepon -> `nomor_kontak`
+- Email -> `email_kontak`
+- Website/link pendaftaran -> `situs_kontak`
+- Jangan isi angka `0` sebagai placeholder untuk field yang tidak diketahui.
+  Omit field numerik yang tidak tertulis jelas.
+- `status_pekerjaan` hanya boleh `0`, `2`, atau `3`; gunakan `0` untuk draft
+  normal.
+- Jangan memilih taxonomy hanya karena term tersedia di backend. Isi taxonomy
+  hanya jika tertulis di sumber atau benar-benar tidak ambigu. Khusus
+  `pendidikan`, omit jika pendidikan tidak disebutkan.
+
 Gunakan format berikut:
 
 ```markdown
@@ -89,10 +112,9 @@ Clone/storage note:
 - Job title.
 - Use a short, searchable title.
 - Multiple positions: join with `&`.
-- If the company name is useful for clarity, use `Posisi | Perusahaan`.
 - For automated AI draft posting, append ` | AI posted draft` to the final
   post title so human reviewers can distinguish generated drafts.
-- Example: `Barista & Kitchen | Kopi Senja`.
+- Example: `Barista & Kitchen`.
 
 `nama_perusahaan`
 
@@ -491,7 +513,7 @@ Hubungi WA +62 877-5713-2074
 Output:
 
 ```markdown
-title: Barista & Kitchen | Kopi Senja
+title: Barista & Kitchen
 nama_perusahaan: Kopi Senja
 perusahaan: Kopi Senja
 lokasi_pekerjaan: Banjarmasin

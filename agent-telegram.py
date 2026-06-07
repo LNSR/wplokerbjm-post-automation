@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import http.cookies
 import http.server
 import json
 import mimetypes
 import os
+import random
 import re
 import ssl
 import sys
@@ -21,10 +23,12 @@ import dotenv
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
+from opencode_vision import ocr as vision_ocr
 
 
 TITLE_SUFFIX = " | AI posted draft"
-DEFAULT_MODEL = "gemini-2.5-flash"
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
+DEFAULT_OPENCODE_CHAIN = "zen:mimo-v2.5-free:chat,go:minimax-m3:messages,go:mimo-v2.5:chat"
 SOCIAL_MEDIA_KEYS = {
     "WhatsApp",
     "Instagram",
@@ -97,6 +101,13 @@ class WordpressConfig:
     jwt: str
 
 
+@dataclass(frozen=True)
+class OpenCodeAttempt:
+    provider: str
+    model: str
+    endpoint_style: str
+
+
 @dataclass
 class BotSettings:
     wordpress_base_url: str | None
@@ -149,11 +160,170 @@ def graphql_base_url() -> str:
     return (BOT_SETTINGS.wordpress_base_url or os.getenv("WPLBJM_WORDPRESS_DOMAIN") or env_value("WPLBJM_API_BASE_URL_PROD")).rstrip("/")
 
 
+def google_ai_studio_key() -> str | None:
+    return os.getenv("GOOGLE_AI_STUDIO_KEY") or os.getenv("GEMINI_API_KEY")
+
+
 def ai_client() -> genai.Client:
-    api_key = os.getenv("AI_STUDIO_KEY") or os.getenv("GEMINI_API_KEY")
+    api_key = google_ai_studio_key()
     if not api_key:
-        raise AgentError("Missing required environment variable: AI_STUDIO_KEY or GEMINI_API_KEY")
+        raise AgentError("Missing required environment variable: GOOGLE_AI_STUDIO_KEY or GEMINI_API_KEY")
     return genai.Client(api_key=api_key)
+
+
+def opencode_api_key(provider: str) -> str | None:
+    if provider == "zen":
+        return os.getenv("OPENCODE_ZEN_KEY") or os.getenv("OPENCODE_API_KEY") or os.getenv("OPENCODE_KEY")
+    if provider == "go":
+        return os.getenv("OPENCODE_GO_KEY") or os.getenv("OPENCODE_API_KEY") or os.getenv("OPENCODE_KEY")
+    return None
+
+
+def opencode_key_label(provider: str) -> str:
+    if provider == "zen":
+        return "OPENCODE_ZEN_KEY or OPENCODE_API_KEY"
+    if provider == "go":
+        return "OPENCODE_GO_KEY or OPENCODE_API_KEY"
+    return "OPENCODE_API_KEY"
+
+
+def normalize_opencode_attempt(attempt: OpenCodeAttempt) -> OpenCodeAttempt:
+    if attempt.provider == "zen" and attempt.model == "minimax-m3":
+        return OpenCodeAttempt("go", attempt.model, "messages")
+    if attempt.provider == "go" and attempt.model == "minimax-m3" and attempt.endpoint_style != "messages":
+        return OpenCodeAttempt(attempt.provider, attempt.model, "messages")
+    return attempt
+
+
+def opencode_endpoint(provider: str, endpoint_style: str) -> str:
+    if provider == "zen":
+        base = "https://opencode.ai/zen/v1"
+    elif provider == "go":
+        base = "https://opencode.ai/zen/go/v1"
+    else:
+        raise AgentError(f"Unsupported OpenCode provider: {provider}")
+
+    if endpoint_style == "chat":
+        return f"{base}/chat/completions"
+    if endpoint_style == "messages":
+        return f"{base}/messages"
+    raise AgentError(f"Unsupported OpenCode endpoint style: {endpoint_style}")
+
+
+def opencode_headers(api_key: str, endpoint_style: str) -> dict[str, str]:
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "User-Agent": "WPLokerBJMPostAutomation/1.0",
+    }
+    if endpoint_style == "messages":
+        headers["x-api-key"] = api_key
+        headers["anthropic-version"] = "2023-06-01"
+    else:
+        headers["Authorization"] = f"Bearer {api_key}"
+    return headers
+
+
+def probe_opencode_attempt(attempt: OpenCodeAttempt) -> dict[str, Any]:
+    attempt = normalize_opencode_attempt(attempt)
+    api_key = opencode_api_key(attempt.provider)
+    if not api_key:
+        return {
+            "provider": attempt.provider,
+            "model": attempt.model,
+            "endpoint_style": attempt.endpoint_style,
+            "ok": False,
+            "status": None,
+            "message": f"missing {opencode_key_label(attempt.provider)}",
+        }
+
+    if attempt.endpoint_style == "messages":
+        body = {
+            "model": attempt.model,
+            "max_tokens": 8,
+            "temperature": 0,
+            "messages": [{"role": "user", "content": [{"type": "text", "text": "Reply with OK only."}]}],
+        }
+    else:
+        body = {
+            "model": attempt.model,
+            "messages": [{"role": "user", "content": "Reply with OK only."}],
+            "temperature": 0,
+            "max_tokens": 8,
+        }
+
+    request = Request(
+        opencode_endpoint(attempt.provider, attempt.endpoint_style),
+        data=json.dumps(body).encode("utf-8"),
+        method="POST",
+        headers=opencode_headers(api_key, attempt.endpoint_style),
+    )
+    try:
+        with urlopen(request, context=ssl._create_unverified_context(), timeout=30) as response:
+            data = parse_json_response(response.read().decode("utf-8", errors="replace"))
+            text = opencode_response_text(data, attempt.endpoint_style)
+            return {
+                "provider": attempt.provider,
+                "ok": response.status == 200,
+                "status": response.status,
+                "model": attempt.model,
+                "endpoint_style": attempt.endpoint_style,
+                "sample": (text or "")[:20],
+            }
+    except HTTPError as error:
+        body = error.read().decode("utf-8", errors="replace")
+        data = parse_json_response(body)
+        message = data.get("message") or data.get("error") or data
+        return {
+            "provider": attempt.provider,
+            "model": attempt.model,
+            "endpoint_style": attempt.endpoint_style,
+            "ok": False,
+            "status": error.code,
+            "message": message,
+        }
+    except URLError as error:
+        return {
+            "provider": attempt.provider,
+            "model": attempt.model,
+            "endpoint_style": attempt.endpoint_style,
+            "ok": False,
+            "status": None,
+            "message": str(error.reason),
+        }
+
+
+def probe_opencode() -> dict[str, Any]:
+    chain = opencode_attempts()
+    return {
+        "attempts": [probe_opencode_attempt(attempt) for attempt in chain],
+        "chain": [attempt.__dict__ for attempt in chain],
+    }
+
+
+def opencode_attempts(model_override: str | None = None) -> list[OpenCodeAttempt]:
+    if model_override:
+        parts = model_override.split(":")
+        if len(parts) == 1:
+            return [normalize_opencode_attempt(OpenCodeAttempt("zen", parts[0], "chat"))]
+        if len(parts) == 2:
+            return [normalize_opencode_attempt(OpenCodeAttempt(parts[0], parts[1], "chat"))]
+        if len(parts) == 3:
+            return [normalize_opencode_attempt(OpenCodeAttempt(parts[0], parts[1], parts[2]))]
+        raise AgentError("--model must be model, provider:model, or provider:model:endpoint_style")
+
+    chain = os.getenv("OPENCODE_MODEL_CHAIN", DEFAULT_OPENCODE_CHAIN)
+    attempts: list[OpenCodeAttempt] = []
+    for raw_item in chain.split(","):
+        item = raw_item.strip()
+        if not item:
+            continue
+        parts = item.split(":")
+        if len(parts) != 3:
+            raise AgentError("OPENCODE_MODEL_CHAIN items must use provider:model:endpoint_style")
+        attempts.append(normalize_opencode_attempt(OpenCodeAttempt(parts[0], parts[1], parts[2])))
+    random.shuffle(attempts)
+    return attempts
 
 
 def bundled_skill_paths() -> list[Path]:
@@ -354,16 +524,32 @@ def build_prompt(options: dict[str, Any]) -> str:
         if name in CONTROLLED_TAXONOMIES and isinstance(terms, list)
     }
     skill_markdown, _ = load_skill_markdown()
+    accepted_fields = sorted(ACCEPTED_PAYLOAD_FIELDS - {"perusahaan"})
 
     return f"""
 You are extracting one Indonesian job vacancy flyer for WPLokerBJM.
 
-Return only JSON matching the provided schema. Do not wrap it in markdown.
+Return only one JSON object. Do not wrap it in markdown.
 
 Follow these operator-provided skill instructions:
 <skill>
 {skill_markdown}
 </skill>
+
+STRICT JSON CONTRACT:
+- The response object may use only these keys:
+{json.dumps(accepted_fields + ["uncertain_fields"], ensure_ascii=False)}
+- Do not output camelCase keys.
+- Do not output Indonesian synonym keys such as kualifikasi, deskripsi, kontak, gaji, alamat, lokasi_kerja, berkas_lamaran, or info_lainnya.
+- Map flyer facts into the exact contract keys:
+  - qualifications/requirements/documents/skills -> persyaratan
+  - duties/work scope -> deskripsi_pekerjaan
+  - application method/address/contact instructions -> cara_melamar
+  - salary/allowance/facility -> benefit, or gaji_minimal/gaji_maksimal only when numeric salary is explicit
+  - phone/WhatsApp -> nomor_kontak
+  - email -> email_kontak
+  - website/link -> situs_kontak
+- If a fact does not fit an allowed key, omit it or mention the field name in uncertain_fields.
 
 Rules:
 - Extract only facts visible in the flyer. Do not invent company profiles, salary, location, deadline, or contacts.
@@ -379,8 +565,13 @@ Rules:
 - Contact fields must be plain scalar values, not HTML.
 - social_media must be an array of objects using only these keys: {sorted(SOCIAL_MEDIA_KEYS)}.
 - Typed fields must be raw integers. Deadline must be YYYY-MM-DD.
+- Never use 0 as an unknown placeholder. Omit unknown numeric fields.
+- status_pekerjaan must be exactly 0, 2, or 3. Use 0 for normal drafts.
 - Use only controlled taxonomy terms from this options object. Omit terms that do not exist:
 {json.dumps(allowed, ensure_ascii=False, indent=2)}
+- Do not choose taxonomy values just because they are available. Only set a
+  taxonomy when the flyer visibly says it or the role makes it unambiguous.
+  In particular, omit pendidikan when education is not mentioned.
 
 Output useful fields only. Include uncertain_fields for values that need human review.
 """.strip()
@@ -395,10 +586,48 @@ def extract_payload_from_image(
     if not image_path.is_file():
         raise AgentError(f"Image file not found: {image_path}")
 
+    if os.getenv("AI_PROVIDER", "opencode").lower() == "gemini":
+        return extract_payload_with_gemini(image_path, options, model=model)
+
+    errors: list[str] = []
+    try:
+        vision_text = analyze_image_with_opencode_vision(image_path)
+    except AgentError as error:
+        errors.append(f"opencode-vision: {error}")
+    else:
+        attempts = opencode_attempts(model)
+        for attempt in attempts:
+            try:
+                return extract_payload_with_opencode(image_path, options, attempt, vision_text)
+            except AgentError as error:
+                errors.append(f"{attempt.provider}/{attempt.model}: {error}")
+
+    if os.getenv("ALLOW_DIRECT_IMAGE_FALLBACK", "1").lower() not in {"0", "false", "no"}:
+        for attempt in opencode_attempts(model):
+            try:
+                return extract_payload_with_opencode_direct_image(image_path, options, attempt)
+            except AgentError as error:
+                errors.append(f"{attempt.provider}/{attempt.model} direct image: {error}")
+
+    if os.getenv("ALLOW_GEMINI_FALLBACK", "").lower() in {"1", "true", "yes"}:
+        try:
+            return extract_payload_with_gemini(image_path, options, model=None)
+        except AgentError as error:
+            errors.append(f"gemini fallback: {error}")
+
+    raise AgentError("AI extraction failed for all providers: " + " | ".join(errors))
+
+
+def extract_payload_with_gemini(
+    image_path: Path,
+    options: dict[str, Any],
+    *,
+    model: str | None = None,
+) -> dict[str, Any]:
     client = ai_client()
     try:
         response = client.models.generate_content(
-            model=model or os.getenv("GEMINI_MODEL", DEFAULT_MODEL),
+            model=model or os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL),
             contents=[
                 types.Part.from_bytes(
                     data=image_path.read_bytes(),
@@ -422,6 +651,421 @@ def extract_payload_from_image(
     parsed = json.loads(response.text)
     if not isinstance(parsed, dict):
         raise AgentError("AI extraction did not return a JSON object.")
+    return parsed
+
+
+def extract_payload_with_opencode(
+    image_path: Path,
+    options: dict[str, Any],
+    attempt: OpenCodeAttempt,
+    vision_text: str,
+) -> dict[str, Any]:
+    api_key = opencode_api_key(attempt.provider)
+    if not api_key:
+        raise AgentError(f"Missing API key for OpenCode {attempt.provider}: {opencode_key_label(attempt.provider)}.")
+
+    prompt = build_prompt(options)
+    contract_error: AgentError | None = None
+    for repair_attempt in range(2):
+        if attempt.endpoint_style == "chat":
+            body = opencode_chat_body(
+                attempt.model,
+                prompt,
+                image_path,
+                vision_text,
+                contract_error=str(contract_error) if contract_error else None,
+            )
+        elif attempt.endpoint_style == "messages":
+            body = opencode_messages_body(
+                attempt.model,
+                prompt,
+                image_path,
+                vision_text,
+                contract_error=str(contract_error) if contract_error else None,
+            )
+        else:
+            raise AgentError(f"Unsupported endpoint style: {attempt.endpoint_style}")
+
+        request = Request(
+            opencode_endpoint(attempt.provider, attempt.endpoint_style),
+            data=json.dumps(body).encode("utf-8"),
+            method="POST",
+            headers=opencode_headers(api_key, attempt.endpoint_style),
+        )
+
+        try:
+            with urlopen(request, context=ssl._create_unverified_context(), timeout=120) as response:
+                data = parse_json_response(response.read().decode("utf-8", errors="replace"))
+        except HTTPError as error:
+            data = parse_json_response(error.read().decode("utf-8", errors="replace"))
+            message = data.get("error") or data.get("message") or data
+            raise AgentError(f"HTTP {error.code}: {message}") from error
+        except URLError as error:
+            raise AgentError(str(error.reason)) from error
+
+        text = opencode_response_text(data, attempt.endpoint_style)
+        if not text:
+            raise AgentError("empty response text")
+        payload = parse_model_json(text)
+        try:
+            validate_model_contract(payload)
+            return payload
+        except AgentError as error:
+            contract_error = error
+
+    raise contract_error or AgentError("model did not satisfy output contract")
+
+
+def extract_payload_with_opencode_direct_image(
+    image_path: Path,
+    options: dict[str, Any],
+    attempt: OpenCodeAttempt,
+) -> dict[str, Any]:
+    api_key = opencode_api_key(attempt.provider)
+    if not api_key:
+        raise AgentError(f"Missing API key for OpenCode {attempt.provider}: {opencode_key_label(attempt.provider)}.")
+
+    prompt = build_prompt(options)
+    contract_error: AgentError | None = None
+    for repair_attempt in range(2):
+        if attempt.endpoint_style == "chat":
+            body = opencode_chat_image_body(
+                attempt.model,
+                prompt,
+                image_path,
+                contract_error=str(contract_error) if contract_error else None,
+            )
+        elif attempt.endpoint_style == "messages":
+            body = opencode_messages_image_body(
+                attempt.model,
+                prompt,
+                image_path,
+                contract_error=str(contract_error) if contract_error else None,
+            )
+        else:
+            raise AgentError(f"Unsupported endpoint style: {attempt.endpoint_style}")
+
+        request = Request(
+            opencode_endpoint(attempt.provider, attempt.endpoint_style),
+            data=json.dumps(body).encode("utf-8"),
+            method="POST",
+            headers=opencode_headers(api_key, attempt.endpoint_style),
+        )
+
+        try:
+            with urlopen(request, context=ssl._create_unverified_context(), timeout=120) as response:
+                data = parse_json_response(response.read().decode("utf-8", errors="replace"))
+        except HTTPError as error:
+            data = parse_json_response(error.read().decode("utf-8", errors="replace"))
+            message = data.get("error") or data.get("message") or data
+            raise AgentError(f"HTTP {error.code}: {message}") from error
+        except URLError as error:
+            raise AgentError(str(error.reason)) from error
+
+        text = opencode_response_text(data, attempt.endpoint_style)
+        if not text:
+            raise AgentError("empty response text")
+        payload = parse_model_json(text)
+        try:
+            validate_model_contract(payload)
+            return payload
+        except AgentError as error:
+            contract_error = error
+
+    raise contract_error or AgentError("model did not satisfy output contract")
+
+
+def validate_model_contract(payload: dict[str, Any]) -> None:
+    unsupported = sorted(
+        key for key in payload.keys() if key not in ACCEPTED_PAYLOAD_FIELDS and key != "uncertain_fields"
+    )
+    if unsupported:
+        raise AgentError(
+            "model returned unsupported fields: "
+            + ", ".join(unsupported)
+            + ". Use only the documented WPLokerBJM JSON contract keys."
+        )
+    status = payload.get("status_pekerjaan")
+    if status not in (None, "", 0, 2, 3, "0", "2", "3"):
+        raise AgentError("model returned invalid status_pekerjaan; allowed values are 0, 2, or 3")
+
+    for field in ("umur_min", "umur_max", "pengalaman", "gaji_minimal", "gaji_maksimal"):
+        if field not in payload or payload[field] in (None, ""):
+            continue
+        try:
+            int(payload[field])
+        except (TypeError, ValueError) as error:
+            raise AgentError(f"model returned non-integer {field}; omit unknown numeric fields") from error
+
+
+def analyze_image_with_opencode_vision(image_path: Path) -> str:
+    google_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GOOGLE_GENERATIVE_AI_API_KEY")
+    fallback_key = google_ai_studio_key()
+    if not google_key and fallback_key:
+        os.environ["GOOGLE_API_KEY"] = fallback_key
+        os.environ["GOOGLE_GENERATIVE_AI_API_KEY"] = fallback_key
+
+    mode = os.getenv("OPENCODE_VISION_MODE", "analyze").strip().lower()
+    if mode == "ocr":
+        result = vision_ocr.extract_text(str(image_path.resolve()))
+    elif mode == "describe":
+        result = vision_ocr.describe_image(
+            str(image_path.resolve()),
+            "Describe this Indonesian job vacancy flyer and transcribe all visible text exactly.",
+        )
+    else:
+        result = analyze_image_with_vision_parts(image_path)
+
+    error = result.get("error") if isinstance(result, dict) else None
+    if error:
+        raise AgentError(f"opencode-vision failed: {error}")
+
+    text = result.get("text") if isinstance(result, dict) else None
+    if not text or not str(text).strip():
+        raise AgentError("opencode-vision returned empty text")
+    return str(text).strip()
+
+
+def analyze_image_with_vision_parts(image_path: Path) -> dict[str, str]:
+    path = str(image_path.resolve())
+    description = vision_ocr.describe_image(
+        path,
+        "Describe this Indonesian job vacancy flyer. Transcribe all visible text exactly. Do not infer missing facts.",
+    )
+    ocr_text = vision_ocr.extract_text(path)
+
+    parts: list[str] = []
+    errors: list[str] = []
+
+    if isinstance(description, dict) and description.get("text"):
+        parts.append("VISUAL DESCRIPTION\n" + str(description["text"]).strip())
+    elif isinstance(description, dict) and description.get("error"):
+        errors.append("describe: " + str(description["error"]))
+
+    if isinstance(ocr_text, dict) and ocr_text.get("text"):
+        parts.append("TEXT CONTENT\n" + str(ocr_text["text"]).strip())
+    elif isinstance(ocr_text, dict) and ocr_text.get("error"):
+        errors.append("ocr: " + str(ocr_text["error"]))
+
+    if not parts:
+        detail = "; ".join(errors) if errors else "no provider text returned"
+        return {"error": f"opencode-vision provider produced no text ({detail})"}
+
+    return {"text": "\n\n".join(parts)}
+
+
+def opencode_user_text(image_path: Path, vision_text: str, contract_error: str | None = None) -> str:
+    repair = ""
+    if contract_error:
+        repair = f"""
+
+Your previous response violated the JSON contract:
+{contract_error}
+
+Return the same flyer extraction again, but use only the exact allowed snake_case keys from the system contract.
+"""
+
+    return f"""
+Extract the job vacancy flyer from this opencode-vision result into the required JSON object.
+
+Image path: {image_path.resolve()}
+
+<opencode_vision_result>
+{vision_text}
+</opencode_vision_result>
+{repair}
+""".strip()
+
+
+def opencode_direct_image_text(image_path: Path, contract_error: str | None = None) -> str:
+    repair = ""
+    if contract_error:
+        repair = f"""
+
+Your previous response violated the JSON contract:
+{contract_error}
+
+Return the same flyer extraction again, but use only the exact allowed snake_case keys from the system contract.
+"""
+
+    return f"""
+Extract the job vacancy flyer from the attached image into the required JSON object.
+
+Image path: {image_path.resolve()}
+{repair}
+""".strip()
+
+
+def data_url_for_image(image_path: Path) -> str:
+    encoded = base64.b64encode(image_path.read_bytes()).decode("ascii")
+    return f"data:{image_mime_type(image_path)};base64,{encoded}"
+
+
+def opencode_chat_body(
+    model: str,
+    prompt: str,
+    image_path: Path,
+    vision_text: str,
+    *,
+    contract_error: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "model": model,
+        "messages": [
+            {
+                "role": "system",
+                "content": prompt,
+            },
+            {
+                "role": "user",
+                "content": opencode_user_text(image_path, vision_text, contract_error),
+            },
+        ],
+        "temperature": 0,
+        "response_format": {"type": "json_object"},
+    }
+
+
+def opencode_chat_image_body(
+    model: str,
+    prompt: str,
+    image_path: Path,
+    *,
+    contract_error: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "model": model,
+        "messages": [
+            {
+                "role": "system",
+                "content": prompt,
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": opencode_direct_image_text(image_path, contract_error),
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": data_url_for_image(image_path)},
+                    },
+                ],
+            },
+        ],
+        "temperature": 0,
+        "response_format": {"type": "json_object"},
+    }
+
+
+def opencode_messages_body(
+    model: str,
+    prompt: str,
+    image_path: Path,
+    vision_text: str,
+    *,
+    contract_error: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "model": model,
+        "max_tokens": 4096,
+        "temperature": 0,
+        "system": prompt,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": opencode_user_text(image_path, vision_text, contract_error),
+                    },
+                ],
+            }
+        ],
+    }
+
+
+def opencode_messages_image_body(
+    model: str,
+    prompt: str,
+    image_path: Path,
+    *,
+    contract_error: str | None = None,
+) -> dict[str, Any]:
+    encoded = base64.b64encode(image_path.read_bytes()).decode("ascii")
+    return {
+        "model": model,
+        "max_tokens": 4096,
+        "temperature": 0,
+        "system": prompt,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": opencode_direct_image_text(image_path, contract_error),
+                    },
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": image_mime_type(image_path),
+                            "data": encoded,
+                        },
+                    },
+                ],
+            }
+        ],
+    }
+
+
+def opencode_response_text(data: dict[str, Any], endpoint_style: str) -> str | None:
+    if endpoint_style == "chat":
+        choices = data.get("choices")
+        if isinstance(choices, list) and choices:
+            message = choices[0].get("message") if isinstance(choices[0], dict) else None
+            if isinstance(message, dict):
+                content = message.get("content")
+                if isinstance(content, str):
+                    return content
+                if isinstance(content, list):
+                    return "".join(
+                        str(part.get("text", ""))
+                        for part in content
+                        if isinstance(part, dict)
+                    )
+    if endpoint_style == "messages":
+        content = data.get("content")
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            return "".join(
+                str(part.get("text", ""))
+                for part in content
+                if isinstance(part, dict)
+            )
+    return None
+
+
+def parse_model_json(text: str) -> dict[str, Any]:
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
+        cleaned = re.sub(r"\s*```$", "", cleaned)
+
+    try:
+        parsed = json.loads(cleaned)
+    except json.JSONDecodeError:
+        start = cleaned.find("{")
+        end = cleaned.rfind("}")
+        if start == -1 or end <= start:
+            raise AgentError("model response did not contain a JSON object")
+        parsed = json.loads(cleaned[start : end + 1])
+
+    if not isinstance(parsed, dict):
+        raise AgentError("model response JSON was not an object")
     return parsed
 
 
@@ -523,6 +1167,14 @@ def normalize_wysiwyg(value: Any) -> str:
     return f"<p>{text}</p>"
 
 
+def normalize_scalar(value: Any) -> str:
+    if isinstance(value, list):
+        return ", ".join(str(item).strip() for item in value if str(item).strip())
+    if isinstance(value, dict):
+        return ", ".join(str(item).strip() for item in value.values() if str(item).strip())
+    return str(value).strip()
+
+
 def normalize_payload(
     payload: dict[str, Any],
     options: dict[str, Any],
@@ -556,6 +1208,10 @@ def normalize_payload(
     if source:
         normalized["source"] = source
 
+    for field in {"email_kontak", "nomor_kontak", "situs_kontak"}:
+        if field in normalized:
+            normalized[field] = normalize_scalar(normalized[field])
+
     for field in INT_FIELDS:
         if field not in normalized:
             continue
@@ -563,6 +1219,10 @@ def normalize_payload(
             normalized[field] = int(normalized[field])
         except (TypeError, ValueError):
             warnings.append(f"Omitted invalid integer field: {field}")
+            normalized.pop(field, None)
+            continue
+        if field != "status_pekerjaan" and normalized[field] <= 0:
+            warnings.append(f"Omitted non-positive numeric placeholder: {field}")
             normalized.pop(field, None)
 
     for field in WYSIWYG_FIELDS:
@@ -878,12 +1538,14 @@ def handle_command(chat_id: int | str, text: str) -> str:
 
     if command == "/status":
         _, skill_source = load_skill_markdown()
+        opencode_status = probe_opencode()
         return (
             "Current runtime settings:\n"
             f"WordPress domain: {BOT_SETTINGS.wordpress_base_url or os.getenv('WPLBJM_WORDPRESS_DOMAIN') or os.getenv('WPLBJM_API_BASE_URL_PROD') or 'fallback missing'}\n"
             f"JWT: {'runtime set' if BOT_SETTINGS.jwt else 'env fallback'}\n"
             f"Skill: {skill_source}\n"
-            f"Allowed Telegram username: @{allowed_telegram_username()}"
+            f"Allowed Telegram username: @{allowed_telegram_username()}\n"
+            f"OpenCode: {json.dumps(opencode_status, ensure_ascii=False)}"
         )
 
     return "Unknown command. Send /help for options."
@@ -1033,8 +1695,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("image", nargs="?", type=Path, help="Path to the flyer image.")
     parser.add_argument("--target", choices=["DEV", "PROD"], default="DEV")
-    parser.add_argument("--model", default=None, help=f"Gemini model. Default: {DEFAULT_MODEL}.")
+    parser.add_argument(
+        "--model",
+        default=None,
+        help=(
+            "AI model override. Use model, provider:model, or provider:model:endpoint_style. "
+            f"Default chain: {DEFAULT_OPENCODE_CHAIN}."
+        ),
+    )
     parser.add_argument("--post", action="store_true", help="Post multipart draft to WordPress.")
+    parser.add_argument("--probe-opencode", action="store_true", help="Check Zen/Go API key access without posting.")
     parser.add_argument("--serve", action="store_true", help="Run Telegram webhook server for Render.")
     args = parser.parse_args(argv)
 
@@ -1042,8 +1712,13 @@ def main(argv: list[str] | None = None) -> int:
         serve_bot()
         return 0
 
+    if args.probe_opencode:
+        load_environment()
+        print(json.dumps(probe_opencode(), ensure_ascii=False, indent=2))
+        return 0
+
     if args.image is None:
-        parser.error("image is required unless --serve is used.")
+        parser.error("image is required unless --serve or --probe-opencode is used.")
 
     try:
         result = build_result(

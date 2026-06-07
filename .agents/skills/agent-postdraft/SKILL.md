@@ -2,11 +2,12 @@
 name: agent-postdraft
 description: >-
   Mengirim hasil ekstraksi lowongan WPLokerBJM ke WordPress sebagai draft dari
-  flyer/image lokal. Gunakan skill ini saat agent perlu membaca gambar lowongan,
-  mengambil opsi taxonomy dari REST, memakai job-copywriter untuk payload,
-  lalu POST multipart ke endpoint lowongan ingest dengan JWT dari env. Cocok
-  untuk membuat draft review, mengunggah featured_image, menangani duplicate
-  flyer, dan melaporkan edit URL tanpa membocorkan token.
+  flyer/image lokal. Gunakan skill ini saat agent perlu membaca flyer lowongan
+  secara langsung dengan Vision, mengambil opsi taxonomy dari REST, memakai
+  job-copywriter untuk payload, lalu POST multipart ke endpoint lowongan ingest
+  dengan JWT dari env. Cocok untuk membuat draft review, mengunggah
+  featured_image, menangani duplicate flyer, dan melaporkan edit URL tanpa
+  membocorkan token.
 ---
 
 # Agent Postdraft WPLokerBJM
@@ -15,7 +16,7 @@ description: >-
 
 Buat draft `lowongan` di WordPress dari flyer lokal secara aman:
 
-- Baca flyer secara visual.
+- Baca flyer secara langsung dengan kemampuan Vision agent.
 - Ambil opsi taxonomy/status dari backend.
 - Gunakan `job-copywriter` untuk membuat payload schema-first.
 - Kirim `payload` + `featured_image` ke REST ingest endpoint.
@@ -93,7 +94,11 @@ Expected success response:
    - Pass allowed taxonomy/status options into the extraction context.
    - Treat `reserved_taxonomies` as write-protected.
 
-3. Read the flyer visually.
+3. Read the flyer directly with Vision.
+   - If the agent has Vision capability, inspect the image itself. Do not rely
+     on OCR, filenames, captions, or inferred context as the primary source.
+   - Use OCR only as a helper for tiny text, then verify the extracted facts
+     against the image.
    - Extract only facts visible in the image or explicitly provided by user.
    - If multiple images are provided, process each image independently unless
      the user says they are one carousel/job.
