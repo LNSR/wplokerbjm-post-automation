@@ -1,0 +1,15 @@
+Downloads
+downloads/
+*.log
+*.tmp
+*.bak
+.venv
+__pycache__
+.env
+.env.*
+!.env.example
+.envrc
+.direnv/
+session-*
+*.session
+cookies.txt
