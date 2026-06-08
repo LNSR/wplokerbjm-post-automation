@@ -12,6 +12,30 @@ The service:
 - Uploads the original flyer as the featured image.
 - Runs as a Render Web Service with a Telegram webhook.
 
+## Code Layout
+
+`agent-telegram.py` is now only a compatibility wrapper around
+`automation.main`. New code should live in the `automation/` package:
+
+```text
+automation/
+  models.py              strict Pydantic contracts and AgentError
+  config.py              env loading, path helpers, API key lookup
+  skills.py              SKILL.md loading from upload, env path, or bundled files
+  main.py                CLI orchestration and build_result()
+  ai/                    prompt building, Gemini fallback, OpenCode extraction
+  ai/opencode/           OpenCode clients, vision preprocessing, probes
+  wordpress/             JWT auth, option fetching, multipart draft posting
+  payload/               constants and payload normalization
+  telegram/              auth, Bot API client, file download, handlers, server
+```
+
+The package exposes a console command:
+
+```bash
+uv run agent --help
+```
+
 ## Requirements
 
 - Python 3.14
@@ -27,10 +51,8 @@ values under **Environment**.
 
 ```env
 WPLBJM_API_BASE_URL_PROD=https://wp.example.com
-WPLBJM_API_BASE_URL_DEV=https://localhost
 WPLBJM_WORDPRESS_DOMAIN=https://wp.example.com
 
-WPLBJM_JWT_DEV=
 WPLBJM_JWT_PROD=
 
 WP_LOGIN_USERNAME=
@@ -66,7 +88,7 @@ SKILL_MD_PATH=.agents/skills/agent-postdraft/SKILL.md
 - `PUBLIC_BASE_URL` is optional. When empty, the service automatically uses
   Render's `RENDER_EXTERNAL_URL`, then `RENDER_EXTERNAL_HOSTNAME`.
 - Set `PUBLIC_BASE_URL` only when Telegram should use a custom public domain.
-- `WPLBJM_JWT_DEV` and `WPLBJM_JWT_PROD` are fallback tokens.
+- `WPLBJM_JWT_PROD` is the fallback token for production options and posting.
 - `WP_LOGIN_USERNAME` and `WP_LOGIN_PASSWORD` are optional fallbacks for
   `/refresh_jwt` when credentials are not included in the command.
 - `WPLBJM_WORDPRESS_DOMAIN` is used by the GraphQL JWT mutation.
@@ -126,18 +148,23 @@ uv sync
 Extract and preview a flyer without posting:
 
 ```bash
-uv run python agent-telegram.py path/to/flyer.webp --target DEV
+uv run agent path/to/flyer.webp
 ```
 
-Create a WordPress draft:
+Create a production WordPress draft:
 
 ```bash
-uv run python agent-telegram.py path/to/flyer.webp --target DEV --post
-uv run python agent-telegram.py path/to/flyer.webp --target PROD --post
+uv run agent path/to/flyer.webp --post-prod
 ```
 
-`DEV` is the default target. Posting to WordPress only occurs when `--post` is
-provided.
+Preview mode returns a mock payload only. Posting to WordPress only occurs when
+`--post-prod` is provided.
+
+The old wrapper still works for existing deployments:
+
+```bash
+uv run python agent-telegram.py path/to/flyer.webp
+```
 
 ## Render Deployment
 
@@ -148,7 +175,7 @@ Recommended settings:
 ```text
 Runtime: Python
 Build Command: python -m pip install uv==0.11.19 && python -m uv sync --frozen
-Start Command: .venv/bin/python agent-telegram.py --serve
+Start Command: .venv/bin/agent --serve
 Health Check Path: /healthz
 ```
 
@@ -159,6 +186,10 @@ lockfile. Calling it as `python -m uv` bypasses Render's native `uv` wrapper,
 which can occasionally exist without its underlying executable. The start
 command runs the synchronized virtual environment directly and therefore does
 not require `uv` at runtime.
+
+Existing services may keep using
+`.venv/bin/python agent-telegram.py --serve`; it delegates to the same
+`automation.main` entry point.
 
 After deployment, verify:
 
@@ -253,13 +284,13 @@ and restore the env/repository fallback.
 
 ### Process Flyers
 
-- Send an image without a caption to extract and preview using `DEV`.
-- Send an image with `/post_dev` as the caption to create a DEV draft.
-- Send an image with `/post_prod` as the caption to create a PROD draft.
+- Send an image without a caption to extract and preview a mock payload.
+- Send an image with `/post_prod` as the caption to create a production draft.
+- `/post_dev` has been removed to avoid maintaining a separate DEV posting path.
 - Images may be sent as Telegram photos or image documents.
 
-The bot returns the extracted title, company, gender, contacts, warnings, and
-WordPress draft information when posting succeeds.
+The bot returns mock payload JSON for previews, and WordPress draft information
+only when `/post_prod` succeeds.
 
 ## WordPress Contract
 

@@ -1,0 +1,1 @@
+"""WPLokerBJM post automation package."""

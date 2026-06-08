@@ -1220,11 +1220,12 @@ wheels = [
 [[package]]
 name = "scrap"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "google-genai" },
     { name = "instaloader" },
     { name = "opencode-vision", extra = ["paddle"] },
+    { name = "pydantic" },
     { name = "python-dotenv" },
 ]
 
@@ -1233,6 +1234,7 @@ requires-dist = [
     { name = "google-genai", specifier = ">=2.8.0" },
     { name = "instaloader", specifier = ">=4.15.1" },
     { name = "opencode-vision", extras = ["paddle"], specifier = ">=2.0.0" },
+    { name = "pydantic", specifier = ">=2.13.4" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
 ]
 
