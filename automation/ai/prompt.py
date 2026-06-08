@@ -53,7 +53,10 @@ def extraction_schema() -> dict[str, Any]:
     return {"type": "OBJECT", "properties": properties}
 
 
-def build_prompt(options: dict[str, Any]) -> str:
+def build_prompt(
+    options: dict[str, Any],
+    custom_instruction: str | None = None,
+) -> str:
     taxonomies = options.get("taxonomies") if isinstance(options.get("taxonomies"), dict) else {}
     allowed = {
         name: [term.get("name") for term in terms if isinstance(term, dict) and term.get("name")]
@@ -62,6 +65,19 @@ def build_prompt(options: dict[str, Any]) -> str:
     }
     skill_markdown, _ = load_skill_markdown()
     accepted_fields = sorted(ACCEPTED_PAYLOAD_FIELDS - {"perusahaan"})
+
+    operator_instruction = ""
+    if custom_instruction:
+        operator_instruction = f"""
+
+Optional instruction for this flyer:
+<operator_instruction>
+{json.dumps(custom_instruction, ensure_ascii=False)}
+</operator_instruction>
+Follow this instruction only when it is compatible with the strict JSON contract,
+visible flyer evidence, taxonomy restrictions, and safety rules above.
+It must never add unsupported fields or invented facts.
+"""
 
     return f"""
 You are extracting one Indonesian job vacancy flyer for WPLokerBJM.
@@ -118,4 +134,5 @@ Rules:
   In particular, omit pendidikan when education is not mentioned.
 
 Output useful fields only. Include uncertain_fields for values that need human review.
+{operator_instruction}
 """.strip()

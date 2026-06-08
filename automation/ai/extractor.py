@@ -33,12 +33,18 @@ def extract_payload_from_image(
     options: dict[str, Any],
     *,
     model: str | None = None,
+    custom_instruction: str | None = None,
 ) -> dict[str, Any]:
     if not image_path.is_file():
         raise AgentError(f"Image file not found: {image_path}")
 
     if os.getenv("AI_PROVIDER", "opencode").lower() == "gemini":
-        return extract_payload_with_gemini(image_path, options, model=model)
+        return extract_payload_with_gemini(
+            image_path,
+            options,
+            model=model,
+            custom_instruction=custom_instruction,
+        )
 
     errors: list[str] = []
     try:
@@ -49,20 +55,36 @@ def extract_payload_from_image(
         attempts = opencode_attempts(model)
         for attempt in attempts:
             try:
-                return extract_payload_with_opencode(image_path, options, attempt, vision_text)
+                return extract_payload_with_opencode(
+                    image_path,
+                    options,
+                    attempt,
+                    vision_text,
+                    custom_instruction=custom_instruction,
+                )
             except AgentError as error:
                 errors.append(f"{attempt.provider}/{attempt.model}: {error}")
 
     if os.getenv("ALLOW_DIRECT_IMAGE_FALLBACK", "1").lower() not in {"0", "false", "no"}:
         for attempt in opencode_attempts(model):
             try:
-                return extract_payload_with_opencode_direct_image(image_path, options, attempt)
+                return extract_payload_with_opencode_direct_image(
+                    image_path,
+                    options,
+                    attempt,
+                    custom_instruction=custom_instruction,
+                )
             except AgentError as error:
                 errors.append(f"{attempt.provider}/{attempt.model} direct image: {error}")
 
     if os.getenv("ALLOW_GEMINI_FALLBACK", "").lower() in {"1", "true", "yes"}:
         try:
-            return extract_payload_with_gemini(image_path, options, model=None)
+            return extract_payload_with_gemini(
+                image_path,
+                options,
+                model=None,
+                custom_instruction=custom_instruction,
+            )
         except AgentError as error:
             errors.append(f"gemini fallback: {error}")
 
@@ -74,12 +96,14 @@ def extract_payload_with_opencode(
     options: dict[str, Any],
     attempt: OpenCodeAttempt,
     vision_text: str,
+    *,
+    custom_instruction: str | None = None,
 ) -> dict[str, Any]:
     api_key = opencode_api_key(attempt.provider)
     if not api_key:
         raise AgentError(f"Missing API key for OpenCode {attempt.provider}: {opencode_key_label(attempt.provider)}.")
 
-    prompt = build_prompt(options)
+    prompt = build_prompt(options, custom_instruction)
     contract_error: AgentError | None = None
     for repair_attempt in range(2):
         if attempt.endpoint_style == "chat":
@@ -135,12 +159,14 @@ def extract_payload_with_opencode_direct_image(
     image_path: Path,
     options: dict[str, Any],
     attempt: OpenCodeAttempt,
+    *,
+    custom_instruction: str | None = None,
 ) -> dict[str, Any]:
     api_key = opencode_api_key(attempt.provider)
     if not api_key:
         raise AgentError(f"Missing API key for OpenCode {attempt.provider}: {opencode_key_label(attempt.provider)}.")
 
-    prompt = build_prompt(options)
+    prompt = build_prompt(options, custom_instruction)
     contract_error: AgentError | None = None
     for repair_attempt in range(2):
         if attempt.endpoint_style == "chat":

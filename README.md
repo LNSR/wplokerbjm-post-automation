@@ -16,6 +16,35 @@ The service:
 - Uploads the original flyer as the featured image.
 - Runs as a Render Web Service with a Telegram webhook.
 
+## Automation Flow
+
+```mermaid
+flowchart TD
+    subgraph Inputs
+        A[Telegram Bot / Local CLI] -->|Image Flyer| B[QR Code Decoder]
+    end
+
+    subgraph Pre-processing
+        B -->|Image + Decoded QR| C[Vision AI<br/>OpenCode / Gemini]
+        C -->|Extracted Raw Text| D{EXA_API_KEY?}
+        D -- Yes --> E[Exa Web Search<br/>Enrichment]
+        D -- No --> F
+        E --> F[WordPress API<br/>Fetch Taxonomy Options]
+    end
+
+    subgraph Processing & AI
+        F --> G[LLM Extraction<br/>OpenCode Zen/Go or Gemini]
+        G -->|Apply job-copywriter skill| H[Structured JSON Payload]
+        H -->|Apply agent-postdraft skill| I[Field Normalization]
+    end
+
+    subgraph WordPress Delivery
+        I --> J[Build Multipart Form<br/>Payload + Original Flyer]
+        J -->|POST + JWT Auth| K[WP REST Ingest Endpoint]
+        K --> L[WordPress Draft Lowongan]
+    end
+```
+
 ## Code Layout
 
 `agent-telegram.py` is now only a compatibility wrapper around
@@ -168,6 +197,22 @@ Extract and preview a flyer without posting:
 uv run agent path/to/flyer.webp
 ```
 
+Run the focused Python tests:
+
+```bash
+uv run pytest
+```
+
+Validate deployment environment variables before starting the bot:
+
+```bash
+uv run agent --check-config
+```
+
+GitHub Actions runs the same checks in `.github/workflows/ci.yml`. In Render,
+set the service auto-deploy behavior to **After CI Checks Pass** so production
+deploys wait for the GitHub CI result.
+
 Create a production WordPress draft:
 
 ```bash
@@ -303,14 +348,23 @@ and restore the env/repository fallback.
 
 - Send an image without a caption to extract and preview a mock payload.
 - Send an image with `/post_prod` as the caption to create a production draft.
-- `/post_dev` has been removed to avoid maintaining a separate DEV posting path.
+- Add an optional instruction after the command when a flyer needs special
+  handling, for example:
+
+  ```text
+  /post_prod Prefer the decoded QR URL as the application link
+  ```
+
+  The instruction can guide emphasis and extraction, but cannot override the
+  WordPress payload contract, visible-evidence rules, or taxonomy restrictions.
 - Images may be sent as Telegram photos or image documents.
-- When sending a Telegram media group/album, put `/post_prod` on any one item;
-  the bot waits briefly for the album and applies that command to every image
-  in the group.
+- When sending a Telegram media group/album, put `/post_prod` and any custom
+  instruction on one item. The bot waits briefly for the album and applies the
+  directive to every image in the group.
 - For large selections that Telegram may split into several albums, send
-  `/post_prod` as a standalone command first, then upload all images within
-  90 seconds. Captionless groups from that upload inherit `/post_prod`.
+  `/post_prod [custom instruction]` as a standalone command first, then upload
+  all images within 90 seconds. Captionless groups from that upload inherit the
+  complete directive.
 
 The bot returns mock payload JSON for previews, and WordPress draft information
 only when `/post_prod` succeeds.
@@ -341,7 +395,7 @@ featured_image=<original flyer>
 
 Automated payload rules include:
 
-- Titles end with ` | AI posted draft`.
+- Titles end with `| AI posted draft`.
 - Missing flyer gender defaults to both `Pria` and `Wanita`.
 - The reserved `perusahaan` taxonomy is omitted.
 - Taxonomy values are validated against backend options.

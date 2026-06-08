@@ -30,6 +30,7 @@ def extract_payload_with_gemini(
     options: dict[str, Any],
     *,
     model: str | None = None,
+    custom_instruction: str | None = None,
 ) -> dict[str, Any]:
     client = ai_client()
     qr_context = qr_context_text(image_path)
@@ -44,7 +45,7 @@ def extract_payload_with_gemini(
     web_context = exa_context_text(qr_context)
     if web_context:
         prompt_parts.append(f"<web_search_context>\n{web_context}\n</web_search_context>")
-    prompt_parts.append(build_prompt(options))
+    prompt_parts.append(build_prompt(options, custom_instruction))
 
     try:
         response = client.models.generate_content(

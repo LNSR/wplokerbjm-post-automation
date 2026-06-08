@@ -6,7 +6,7 @@ import os
 import sys
 from typing import Any
 
-from automation.config import load_environment
+from automation.config import load_environment, validate_runtime_environment
 from automation.models import AgentError
 from automation.telegram.handlers import handle_telegram_update
 from automation.telegram.webhook import register_telegram_webhook, telegram_webhook_url, public_base_url
@@ -61,6 +61,7 @@ class TelegramWebhookHandler(http.server.BaseHTTPRequestHandler):
 
 def serve_bot() -> None:
     load_environment()
+    validate_runtime_environment(require_public_url=True)
     port = int(os.getenv("PORT", "8000"))
 
     webhook_url = telegram_webhook_url()

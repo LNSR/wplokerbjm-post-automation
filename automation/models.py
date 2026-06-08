@@ -1,8 +1,21 @@
 from __future__ import annotations
 
+import re
 from typing import Any, Literal
+from urllib.parse import urlparse
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, StrictStr, ValidationError
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictFloat,
+    StrictInt,
+    StrictStr,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 
 class AgentError(RuntimeError):
@@ -40,6 +53,121 @@ class BotSettings(StrictModel):
     wordpress_base_url: StrictStr | None = None
     jwt: StrictStr | None = None
     skill_markdown: StrictStr | None = None
+
+
+class RuntimeEnvironment(StrictModel):
+    wordpress_base_url: StrictStr
+    wordpress_domain: StrictStr | None = None
+    wordpress_jwt: StrictStr
+    telegram_username: StrictStr
+    telegram_bot_token: StrictStr
+    telegram_webhook_secret: StrictStr
+    public_base_url: StrictStr | None = None
+    ai_provider: Literal["opencode", "gemini"] = "opencode"
+    opencode_model_chain: StrictStr
+    opencode_api_key: StrictStr | None = None
+    opencode_zen_key: StrictStr | None = None
+    opencode_go_key: StrictStr | None = None
+    google_ai_studio_key: StrictStr | None = None
+    gemini_api_key: StrictStr | None = None
+    skill_md_path: StrictStr | None = None
+    media_group_delay_seconds: StrictFloat
+    bulk_command_ttl_seconds: StrictFloat
+
+    @field_validator(
+        "wordpress_base_url",
+        "wordpress_domain",
+        "public_base_url",
+    )
+    @classmethod
+    def validate_http_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        parsed = urlparse(value)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("must be an absolute http(s) URL")
+        return value.rstrip("/")
+
+    @field_validator("wordpress_jwt")
+    @classmethod
+    def validate_wordpress_jwt(cls, value: str) -> str:
+        if len(value) < 20 or value.count(".") != 2:
+            raise ValueError("must look like a three-segment JWT")
+        return value
+
+    @field_validator("telegram_username")
+    @classmethod
+    def validate_telegram_username(cls, value: str) -> str:
+        normalized = value.lstrip("@")
+        if not re.fullmatch(r"[A-Za-z0-9_]{5,32}", normalized):
+            raise ValueError("must be a valid Telegram username")
+        return normalized
+
+    @field_validator("telegram_bot_token")
+    @classmethod
+    def validate_telegram_bot_token(cls, value: str) -> str:
+        if not re.fullmatch(r"\d{6,12}:[A-Za-z0-9_-]{30,64}", value):
+            raise ValueError("must match Telegram's bot token format")
+        return value
+
+    @field_validator("telegram_webhook_secret")
+    @classmethod
+    def validate_webhook_secret(cls, value: str) -> str:
+        if not 16 <= len(value) <= 256:
+            raise ValueError("must contain between 16 and 256 characters")
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", value):
+            raise ValueError("may contain only letters, numbers, underscore, and hyphen")
+        return value
+
+    @field_validator("media_group_delay_seconds", "bulk_command_ttl_seconds")
+    @classmethod
+    def validate_positive_seconds(cls, value: float) -> float:
+        if value <= 0:
+            raise ValueError("must be greater than zero")
+        return value
+
+    @field_validator("opencode_model_chain")
+    @classmethod
+    def validate_model_chain(cls, value: str) -> str:
+        items = [item.strip() for item in value.split(",") if item.strip()]
+        if not items:
+            raise ValueError("must contain at least one model")
+        for item in items:
+            parts = item.split(":")
+            if len(parts) != 3:
+                raise ValueError(
+                    "items must use provider:model:endpoint_style",
+                )
+            provider, model, endpoint_style = parts
+            if provider not in {"zen", "go"}:
+                raise ValueError(f"unsupported provider: {provider}")
+            if not model:
+                raise ValueError("model name cannot be empty")
+            if endpoint_style not in {"chat", "messages"}:
+                raise ValueError(
+                    f"unsupported endpoint style: {endpoint_style}",
+                )
+        return value
+
+    @model_validator(mode="after")
+    def validate_ai_credentials(self) -> RuntimeEnvironment:
+        if self.ai_provider == "gemini":
+            if not (self.google_ai_studio_key or self.gemini_api_key):
+                raise ValueError(
+                    "Gemini requires GOOGLE_AI_STUDIO_KEY or GEMINI_API_KEY",
+                )
+            return self
+
+        if not (
+            self.opencode_api_key
+            or self.opencode_zen_key
+            or self.opencode_go_key
+        ):
+            raise ValueError(
+                "OpenCode requires OPENCODE_API_KEY, "
+                "OPENCODE_ZEN_KEY, or OPENCODE_GO_KEY",
+            )
+        return self
 
 
 class NormalizedPayload(StrictModel):
@@ -92,15 +220,20 @@ class OpenCodeProbeResult(StrictModel):
     chain: list[OpenCodeAttempt]
 
 
+class TelegramPostDirective(FrozenStrictModel):
+    command: Literal["/post_prod"] = "/post_prod"
+    instruction: StrictStr | None = None
+
+
 class TelegramMediaGroupState(StrictModel):
     chat_id: StrictInt | StrictStr
     media_group_id: StrictStr
     messages: list[dict[StrictStr, Any]] = Field(default_factory=list)
-    command: StrictStr | None = None
+    directive: TelegramPostDirective | None = None
 
 
 class TelegramChatCommandState(StrictModel):
-    command: StrictStr
+    directive: TelegramPostDirective
     expires_at: StrictFloat
 
 

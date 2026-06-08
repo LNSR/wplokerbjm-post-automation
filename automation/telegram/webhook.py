@@ -3,23 +3,12 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from automation.config import public_url_from_env
 from automation.telegram.client import telegram_api
 
 
 def public_base_url() -> str | None:
-    explicit_url = os.getenv("PUBLIC_BASE_URL")
-    if explicit_url:
-        return explicit_url.rstrip("/")
-
-    render_url = os.getenv("RENDER_EXTERNAL_URL")
-    if render_url:
-        return render_url.rstrip("/")
-
-    render_hostname = os.getenv("RENDER_EXTERNAL_HOSTNAME")
-    if render_hostname:
-        return f"https://{render_hostname.strip('/')}"
-
-    return None
+    return public_url_from_env()
 
 
 def telegram_webhook_url() -> str | None:

@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.19"
+          enable-cache: true
+          cache-python: true
+
+      - name: Sync locked dependencies
+        run: uv sync --frozen
+
+      - name: Run pytest
+        run: uv run --frozen pytest
+
+      - name: Validate deployment configuration contract
+        env:
+          WPLBJM_API_BASE_URL_PROD: https://wp.example.test
+          WPLBJM_WORDPRESS_DOMAIN: https://wp.example.test
+          WPLBJM_JWT_PROD: eyJ0eXAiOiJKV1Qi.e30.signaturevalue
+          TELEGRAM_USERNAME: ci_test_user
+          TELEGRAM_BOT_TOKEN: 123456789:abcdefghijklmnopqrstuvwxyzABCDE
+          TELEGRAM_WEBHOOK_SECRET: ci_webhook_secret_12345
+          PUBLIC_BASE_URL: https://bot.example.test
+          AI_PROVIDER: opencode
+          OPENCODE_API_KEY: ci-opencode-key-123456
+          OPENCODE_MODEL_CHAIN: zen:mimo-v2.5-free:chat
+          SKILL_MD_PATH: .agents/skills/agent-postdraft/SKILL.md
+        run: uv run --frozen agent --check-config
+
+      - name: Compile package
+        run: uv run --frozen python -m compileall -q automation
+
+      - name: Check CLI entry point
+        run: uv run --frozen agent --help

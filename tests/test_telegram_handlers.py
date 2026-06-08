@@ -1,0 +1,225 @@
+from __future__ import annotations
+
+from typing import Any
+
+import pytest
+
+from automation.models import TelegramPostDirective
+from automation.telegram import handlers
+
+
+@pytest.fixture(autouse=True)
+def reset_handler_state() -> None:
+    handlers._MEDIA_GROUPS.clear()
+    handlers._MEDIA_GROUP_TIMERS.clear()
+    handlers._BULK_COMMANDS = handlers.BulkCommandStore(
+        ttl_seconds=handlers.BULK_COMMAND_TTL_SECONDS,
+    )
+
+
+def cancel_and_flush_all_groups() -> None:
+    for key in list(handlers._MEDIA_GROUP_TIMERS):
+        with handlers._MEDIA_GROUP_LOCK:
+            timer = handlers._MEDIA_GROUP_TIMERS.pop(key)
+            timer.cancel()
+        handlers.flush_media_group(key)
+
+
+def image_message(
+    *,
+    message_id: int,
+    media_group_id: str | None = None,
+    caption: str | None = None,
+) -> dict[str, Any]:
+    message: dict[str, Any] = {
+        "message_id": message_id,
+        "photo": [{"file_id": f"file-{message_id}", "file_size": 10}],
+    }
+    if media_group_id:
+        message["media_group_id"] = media_group_id
+    if caption:
+        message["caption"] = caption
+    return message
+
+
+def test_split_media_groups_inherit_post_prod_and_deduplicate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[
+        tuple[
+            str,
+            int | str,
+            int | str | None,
+            TelegramPostDirective | None,
+        ]
+    ] = []
+    sent: list[str] = []
+    directive = TelegramPostDirective(
+        instruction="Prefer the QR application URL.",
+    )
+
+    monkeypatch.setattr(
+        handlers,
+        "telegram_send_message",
+        lambda chat_id, text: sent.append(str(text)),
+    )
+    monkeypatch.setattr(
+        handlers,
+        "process_flyer_message",
+        lambda chat_id, message, current_directive: calls.append(
+            (
+                "process",
+                chat_id,
+                message.get("message_id"),
+                current_directive,
+            )
+        ),
+    )
+
+    handlers.queue_media_group_message(
+        123,
+        image_message(
+            message_id=1,
+            media_group_id="album-1",
+            caption="/post_prod Prefer the QR application URL.",
+        ),
+        directive,
+    )
+    handlers.queue_media_group_message(
+        123,
+        image_message(message_id=2, media_group_id="album-2"),
+        None,
+    )
+    handlers.queue_media_group_message(
+        123,
+        image_message(message_id=2, media_group_id="album-2"),
+        None,
+    )
+
+    cancel_and_flush_all_groups()
+
+    assert calls == [
+        ("process", 123, 1, directive),
+        ("process", 123, 2, directive),
+    ]
+    assert sent == [
+        "Processing 1 media group item(s) with /post_prod. "
+        "Custom instruction applied.",
+        "Processing 1 media group item(s) with /post_prod. "
+        "Custom instruction applied.",
+    ]
+
+
+def test_standalone_post_prod_arms_bulk_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    replies: list[str] = []
+    monkeypatch.setattr(
+        handlers,
+        "authorize_update",
+        lambda update: (True, update["message"], update["message"]["chat"]["id"]),
+    )
+    monkeypatch.setattr(
+        handlers,
+        "telegram_send_message",
+        lambda chat_id, text: replies.append(str(text)),
+    )
+
+    handlers.handle_telegram_update(
+        {
+            "message": {
+                "chat": {"id": 123},
+                "text": "/post_prod Keep titles concise",
+            }
+        }
+    )
+
+    assert handlers.remembered_bulk_command(123) == TelegramPostDirective(
+        instruction="Keep titles concise",
+    )
+    assert replies == [
+        "Bulk /post_prod armed for the next 90 seconds. Send the flyer "
+        "images now. The custom instruction will apply to every image."
+    ]
+
+
+def test_plain_album_without_command_is_mock_preview(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[
+        tuple[
+            int | str,
+            int | str | None,
+            TelegramPostDirective | None,
+        ]
+    ] = []
+    sent: list[str] = []
+    monkeypatch.setattr(
+        handlers,
+        "telegram_send_message",
+        lambda chat_id, text: sent.append(str(text)),
+    )
+    monkeypatch.setattr(
+        handlers,
+        "process_flyer_message",
+        lambda chat_id, message, directive: calls.append(
+            (chat_id, message.get("message_id"), directive)
+        ),
+    )
+
+    handlers.queue_media_group_message(
+        123,
+        image_message(message_id=1, media_group_id="album-1"),
+        None,
+    )
+    cancel_and_flush_all_groups()
+
+    assert sent == ["Processing 1 media group item(s) as mock preview."]
+    assert calls == [(123, 1, None)]
+
+
+def test_post_directive_extracts_custom_instruction() -> None:
+    directive = handlers.post_directive(
+        {
+            "caption": (
+                "/post_prod@wplokerbjm_bot "
+                "Use the decoded QR URL as the application link"
+            )
+        }
+    )
+
+    assert directive == TelegramPostDirective(
+        instruction="Use the decoded QR URL as the application link",
+    )
+
+
+def test_unknown_image_command_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    replies: list[str] = []
+    processed: list[bool] = []
+    message = image_message(message_id=1, caption="/unknown")
+    message["chat"] = {"id": 123}
+    monkeypatch.setattr(
+        handlers,
+        "authorize_update",
+        lambda update: (True, update["message"], 123),
+    )
+    monkeypatch.setattr(
+        handlers,
+        "telegram_send_message",
+        lambda chat_id, text: replies.append(str(text)),
+    )
+    monkeypatch.setattr(
+        handlers,
+        "process_flyer_message",
+        lambda *args: processed.append(True),
+    )
+
+    handlers.handle_telegram_update({"message": message})
+
+    assert processed == []
+    assert replies == [
+        "Unsupported image command. Use /post_prod [custom instruction], "
+        "or remove the caption for a mock preview."
+    ]
