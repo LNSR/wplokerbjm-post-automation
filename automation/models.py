@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, StrictStr, ValidationError
 
 
 class AgentError(RuntimeError):
@@ -90,6 +90,24 @@ class OpenCodeProbeAttemptResult(StrictModel):
 class OpenCodeProbeResult(StrictModel):
     attempts: list[OpenCodeProbeAttemptResult]
     chain: list[OpenCodeAttempt]
+
+
+class TelegramMediaGroupState(StrictModel):
+    chat_id: StrictInt | StrictStr
+    media_group_id: StrictStr
+    messages: list[dict[StrictStr, Any]] = Field(default_factory=list)
+    command: StrictStr | None = None
+
+
+class TelegramChatCommandState(StrictModel):
+    command: StrictStr
+    expires_at: StrictFloat
+
+
+class ExaSearchResult(StrictModel):
+    title: StrictStr | None = None
+    url: StrictStr
+    text: StrictStr | None = None
 
 
 def validation_error_summary(error: ValidationError) -> str:

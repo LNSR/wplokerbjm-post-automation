@@ -6,6 +6,10 @@ WordPress `lowongan` drafts.
 The service:
 
 - Reads flyer images with OpenCode Zen first, then OpenCode Go fallback.
+- Decodes QR codes deterministically before AI extraction and passes the
+  decoded content into the model context.
+- Optionally enriches extraction context with Exa web search when `EXA_API_KEY`
+  is configured.
 - Loads current taxonomy options from WordPress before extraction.
 - Applies the bundled `job-copywriter` and `agent-postdraft` skills.
 - Normalizes fields to the WordPress ingest schema.
@@ -69,6 +73,9 @@ ALLOW_GEMINI_FALLBACK=
 GOOGLE_AI_STUDIO_KEY=
 GEMINI_API_KEY=
 GEMINI_MODEL=
+EXA_API_KEY=
+EXA_SEARCH_TYPE=auto
+DISABLE_WEB_ENRICHMENT=
 
 TELEGRAM_USERNAME=allowed_username_without_at
 TELEGRAM_BOT_TOKEN=
@@ -85,6 +92,11 @@ SKILL_MD_PATH=.agents/skills/agent-postdraft/SKILL.md
   updating the environment and redeploying.
 - `TELEGRAM_WEBHOOK_SECRET` is compared with Telegram's
   `X-Telegram-Bot-Api-Secret-Token` header.
+- `TELEGRAM_MEDIA_GROUP_DELAY_SECONDS` controls how long the bot waits for
+  sibling items in one Telegram album. The default is `2`.
+- `TELEGRAM_BULK_COMMAND_TTL_SECONDS` controls how long `/post_prod` is
+  remembered for captionless album fragments from the same chat. The default
+  is `90`.
 - `PUBLIC_BASE_URL` is optional. When empty, the service automatically uses
   Render's `RENDER_EXTERNAL_URL`, then `RENDER_EXTERNAL_HOSTNAME`.
 - Set `PUBLIC_BASE_URL` only when Telegram should use a custom public domain.
@@ -117,6 +129,11 @@ SKILL_MD_PATH=.agents/skills/agent-postdraft/SKILL.md
 - `GEMINI_API_KEY` may be used instead of `GOOGLE_AI_STUDIO_KEY` when Gemini
   fallback or `AI_PROVIDER=gemini` is enabled.
 - `GEMINI_MODEL` may override the Gemini default `gemini-2.5-flash`.
+- `EXA_API_KEY` enables optional web search enrichment for website/address/map
+  validation. It is not required.
+- `EXA_SEARCH_TYPE` defaults to `auto`; use `fast` if latency matters more than
+  search quality.
+- `DISABLE_WEB_ENRICHMENT=1` disables Exa even when `EXA_API_KEY` is present.
 - `opencode-vision` turns the flyer image into text first, so OpenCode Zen/Go
   models receive text-only requests instead of raw image payloads.
 
@@ -288,6 +305,12 @@ and restore the env/repository fallback.
 - Send an image with `/post_prod` as the caption to create a production draft.
 - `/post_dev` has been removed to avoid maintaining a separate DEV posting path.
 - Images may be sent as Telegram photos or image documents.
+- When sending a Telegram media group/album, put `/post_prod` on any one item;
+  the bot waits briefly for the album and applies that command to every image
+  in the group.
+- For large selections that Telegram may split into several albums, send
+  `/post_prod` as a standalone command first, then upload all images within
+  90 seconds. Captionless groups from that upload inherit `/post_prod`.
 
 The bot returns mock payload JSON for previews, and WordPress draft information
 only when `/post_prod` succeeds.

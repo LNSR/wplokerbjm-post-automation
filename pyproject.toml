@@ -10,6 +10,7 @@ dependencies = [
     "opencode-vision[paddle]>=2.0.0",
     "pydantic>=2.13.4",
     "python-dotenv>=1.2.2",
+    "zxing-cpp>=2.3.0",
 ]
 
 [project.scripts]

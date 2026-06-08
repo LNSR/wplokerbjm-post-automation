@@ -90,6 +90,13 @@ STRICT JSON CONTRACT:
 
 Rules:
 - Extract only facts visible in the flyer. Do not invent company profiles, salary, location, deadline, or contacts.
+- If decoded QR code content is provided with the image, treat it as visible
+  flyer evidence. Use QR URLs for situs_kontak or cara_melamar only when they
+  are clearly application/contact links.
+- If web search context is provided, use it only to validate or enrich contact
+  URLs, public address/map clues, or company identity already suggested by the
+  flyer/QR. Do not invent salary, requirements, deadline, or job facts from web
+  search alone.
 - Do not include ringkasanPekerjaan.
 - title must be short and searchable. Use "Posisi | Perusahaan" when company is visible.
 - Append "{TITLE_SUFFIX}" to title.

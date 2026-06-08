@@ -9,6 +9,8 @@ from opencode_vision import ocr as vision_ocr
 
 from automation.config import google_ai_studio_key
 from automation.models import AgentError
+from automation.ai.qr import qr_context_text
+from automation.web.exa import exa_context_text
 
 
 def image_mime_type(image_path: Path) -> str:
@@ -45,7 +47,15 @@ def analyze_image_with_opencode_vision(image_path: Path) -> str:
     text = result.get("text") if isinstance(result, dict) else None
     if not text or not str(text).strip():
         raise AgentError("opencode-vision returned empty text")
-    return str(text).strip()
+
+    parts = [str(text).strip()]
+    qr_context = qr_context_text(image_path)
+    if qr_context:
+        parts.append(qr_context)
+    web_context = exa_context_text("\n\n".join(parts))
+    if web_context:
+        parts.append(web_context)
+    return "\n\n".join(parts)
 
 
 def analyze_image_with_vision_parts(image_path: Path) -> dict[str, str]:
@@ -68,6 +78,13 @@ def analyze_image_with_vision_parts(image_path: Path) -> dict[str, str]:
         parts.append("TEXT CONTENT\n" + str(ocr_text["text"]).strip())
     elif isinstance(ocr_text, dict) and ocr_text.get("error"):
         errors.append("ocr: " + str(ocr_text["error"]))
+
+    qr_context = qr_context_text(image_path)
+    if qr_context:
+        parts.append(qr_context)
+    web_context = exa_context_text("\n\n".join(parts))
+    if web_context:
+        parts.append(web_context)
 
     if not parts:
         detail = "; ".join(errors) if errors else "no provider text returned"
@@ -110,10 +127,27 @@ Your previous response violated the JSON contract:
 Return the same flyer extraction again, but use only the exact allowed snake_case keys from the system contract.
 """
 
+    qr_context = qr_context_text(image_path)
+    web_context = exa_context_text(qr_context)
+    qr_section = f"""
+
+<decoded_qr_codes>
+{qr_context}
+</decoded_qr_codes>
+""" if qr_context else ""
+    web_section = f"""
+
+<web_search_context>
+{web_context}
+</web_search_context>
+""" if web_context else ""
+
     return f"""
 Extract the job vacancy flyer from the attached image into the required JSON object.
 
 Image path: {image_path.resolve()}
+{qr_section}
+{web_section}
 {repair}
 """.strip()
 
