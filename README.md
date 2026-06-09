@@ -93,14 +93,11 @@ WP_LOGIN_PASSWORD=
 
 AI_PROVIDER=opencode
 OPENCODE_API_KEY=
-OPENCODE_ZEN_KEY=
-OPENCODE_GO_KEY=
 OPENCODE_MODEL_CHAIN=zen:mimo-v2.5-free:chat,go:minimax-m3:messages,go:mimo-v2.5:chat
 OPENCODE_VISION_MODE=analyze
 ALLOW_DIRECT_IMAGE_FALLBACK=1
 ALLOW_GEMINI_FALLBACK=
 GOOGLE_AI_STUDIO_KEY=
-GEMINI_API_KEY=
 GEMINI_MODEL=
 EXA_API_KEY=
 EXA_SEARCH_TYPE=auto
@@ -139,15 +136,11 @@ SKILL_MD_PATH=.agents/skills/agent-postdraft/SKILL.md
   `provider:model:endpoint_style` format. The default tries Zen MiMo V2.5,
   then Go MiniMax M3, then Go MiMo V2.5. The list is shuffled for each flyer
   unless `--model` is provided.
-- `OPENCODE_ZEN_KEY` is preferred for Zen requests, and `OPENCODE_GO_KEY` is
-  preferred for Go requests. `OPENCODE_API_KEY` is still accepted as a shared
-  fallback when one key works for both.
+- `OPENCODE_API_KEY` is the single OpenCode credential used for every OpenCode
+  request, regardless of whether the model chain uses Zen or Go providers.
 - `GOOGLE_AI_STUDIO_KEY` powers `opencode-vision`. The app maps it to
   `GOOGLE_API_KEY` at runtime when Google-specific env vars are not already
-  set. Legacy `AI_STUDIO_KEY` is still accepted as a fallback.
-- If your key comes from an OpenCode Go subscription, put it in
-  `OPENCODE_GO_KEY`. If it comes from Zen billing, put it in
-  `OPENCODE_ZEN_KEY`.
+  set.
 - `OPENCODE_VISION_MODE` controls the image preprocessor: `analyze` is the
   default, with `ocr` and `describe` available for troubleshooting.
 - `ALLOW_DIRECT_IMAGE_FALLBACK=1` lets OpenCode receive the image directly
@@ -155,8 +148,8 @@ SKILL_MD_PATH=.agents/skills/agent-postdraft/SKILL.md
   require the preprocessor.
 - `ALLOW_GEMINI_FALLBACK=1` allows Gemini as the last fallback after all
   OpenCode attempts fail.
-- `GEMINI_API_KEY` may be used instead of `GOOGLE_AI_STUDIO_KEY` when Gemini
-  fallback or `AI_PROVIDER=gemini` is enabled.
+- `GOOGLE_AI_STUDIO_KEY` is also used when Gemini fallback or
+  `AI_PROVIDER=gemini` is enabled.
 - `GEMINI_MODEL` may override the Gemini default `gemini-2.5-flash`.
 - `EXA_API_KEY` enables optional web search enrichment for website/address/map
   validation. It is not required.

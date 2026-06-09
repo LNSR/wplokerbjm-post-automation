@@ -91,10 +91,7 @@ class RuntimeEnvironment(StrictModel):
     ai_provider: Literal["opencode", "gemini"] = "opencode"
     opencode_model_chain: StrictStr
     opencode_api_key: StrictStr | None = None
-    opencode_zen_key: StrictStr | None = None
-    opencode_go_key: StrictStr | None = None
     google_ai_studio_key: StrictStr | None = None
-    gemini_api_key: StrictStr | None = None
     skill_md_path: StrictStr | None = None
     media_group_delay_seconds: StrictFloat
     bulk_command_ttl_seconds: StrictFloat
@@ -174,20 +171,15 @@ class RuntimeEnvironment(StrictModel):
     @model_validator(mode="after")
     def validate_ai_credentials(self) -> RuntimeEnvironment:
         if self.ai_provider == "gemini":
-            if not (self.google_ai_studio_key or self.gemini_api_key):
+            if not self.google_ai_studio_key:
                 raise ValueError(
-                    "Gemini requires GOOGLE_AI_STUDIO_KEY or GEMINI_API_KEY",
+                    "Gemini requires GOOGLE_AI_STUDIO_KEY",
                 )
             return self
 
-        if not (
-            self.opencode_api_key
-            or self.opencode_zen_key
-            or self.opencode_go_key
-        ):
+        if not self.opencode_api_key:
             raise ValueError(
-                "OpenCode requires OPENCODE_API_KEY, "
-                "OPENCODE_ZEN_KEY, or OPENCODE_GO_KEY",
+                "OpenCode requires OPENCODE_API_KEY",
             )
         return self
 

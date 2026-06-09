@@ -21,7 +21,7 @@ from automation.web.exa import exa_context_text
 def ai_client() -> genai.Client:
     api_key = google_ai_studio_key()
     if not api_key:
-        raise AgentError("Missing required environment variable: GOOGLE_AI_STUDIO_KEY or GEMINI_API_KEY")
+        raise AgentError("Missing required environment variable: GOOGLE_AI_STUDIO_KEY")
     return genai.Client(api_key=api_key)
 
 

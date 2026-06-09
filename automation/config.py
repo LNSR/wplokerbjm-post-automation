@@ -50,34 +50,14 @@ def env_value(name: str) -> str:
 
 
 def google_ai_studio_key() -> str | None:
-    return (
-        os.getenv("GOOGLE_AI_STUDIO_KEY")
-        or os.getenv("AI_STUDIO_KEY")
-        or os.getenv("GEMINI_API_KEY")
-    )
+    return os.getenv("GOOGLE_AI_STUDIO_KEY")
 
 
 def opencode_api_key(provider: str) -> str | None:
-    if provider == "zen":
-        return (
-            os.getenv("OPENCODE_ZEN_KEY")
-            or os.getenv("OPENCODE_API_KEY")
-            or os.getenv("OPENCODE_KEY")
-        )
-    if provider == "go":
-        return (
-            os.getenv("OPENCODE_GO_KEY")
-            or os.getenv("OPENCODE_API_KEY")
-            or os.getenv("OPENCODE_KEY")
-        )
-    return None
+    return os.getenv("OPENCODE_API_KEY")
 
 
 def opencode_key_label(provider: str) -> str:
-    if provider == "zen":
-        return "OPENCODE_ZEN_KEY or OPENCODE_API_KEY"
-    if provider == "go":
-        return "OPENCODE_GO_KEY or OPENCODE_API_KEY"
     return "OPENCODE_API_KEY"
 
 
@@ -158,13 +138,8 @@ def validate_runtime_environment(
             "OPENCODE_MODEL_CHAIN",
             "zen:mimo-v2.5-free:chat,go:minimax-m3:messages,go:mimo-v2.5:chat",
         ),
-        "opencode_api_key": env.get("OPENCODE_API_KEY") or env.get("OPENCODE_KEY") or None,
-        "opencode_zen_key": env.get("OPENCODE_ZEN_KEY") or None,
-        "opencode_go_key": env.get("OPENCODE_GO_KEY") or None,
-        "google_ai_studio_key": env.get("GOOGLE_AI_STUDIO_KEY")
-        or env.get("AI_STUDIO_KEY")
-        or None,
-        "gemini_api_key": env.get("GEMINI_API_KEY") or None,
+        "opencode_api_key": env.get("OPENCODE_API_KEY") or None,
+        "google_ai_studio_key": env.get("GOOGLE_AI_STUDIO_KEY") or None,
         "skill_md_path": env.get("SKILL_MD_PATH") or None,
         "media_group_delay_seconds": env_float(
             "TELEGRAM_MEDIA_GROUP_DELAY_SECONDS",
