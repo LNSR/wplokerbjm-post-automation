@@ -84,6 +84,14 @@ def main() -> None:
                 file.unlink()
 
     try:
+
+        if target_dir.exists():
+            print(f"Directory '{target_dir}' already exists. Cleaning up old files...")
+            for file in target_dir.iterdir():
+                if file.is_file():
+                    file.unlink()
+            print("Old files cleaned up. Starting fresh.")
+
         for post in profile.get_posts():
             if post.is_video:
                 continue

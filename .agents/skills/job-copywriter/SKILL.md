@@ -36,6 +36,29 @@ Important:
 - `ringkasanPekerjaan` dibuat oleh UI/API dari taxonomy dan typed fields.
 - Jangan output `ringkasanPekerjaan` sebagai field terpisah.
 
+## Evidence Discipline
+
+Lowongan otomatis harus mengutamakan bukti yang terlihat, bukan kelengkapan
+narasi.
+
+- Jika flyer buram, OCR tidak jelas, atau hanya sebagian teks terbaca,
+  keluarkan payload yang lebih sedikit tetapi terverifikasi.
+- Jangan membuat kalimat pengisi umum seperti "posisi ini bertanggung jawab",
+  "mengikuti program rekrutmen", "bekerja pada penempatan yang ditentukan
+  perusahaan", atau "lamaran dapat dikirimkan melalui tautan berikut" kecuali
+  makna yang sama memang tertulis pada sumber.
+- Jangan mengubah judul pekerjaan menjadi `deskripsi_pekerjaan`. Contoh:
+  dari "Mobile App Developer" saja, jangan menulis "bertanggung jawab
+  mengembangkan aplikasi mobile" kecuali tugas itu tertulis.
+- Jangan membuat profil perusahaan dari logo/nama perusahaan saja.
+  `tentang_perusahaan` hanya diisi jika profil perusahaan tertulis jelas atau
+  sumber verifikasi resmi diberikan.
+- Untuk `cara_melamar`, `email_kontak`, `nomor_kontak`, dan `situs_kontak`,
+  hanya gunakan channel konkret yang terlihat: email, nomor telepon/WhatsApp,
+  URL, hasil decode QR, atau alamat fisik. Jika QR terlihat tetapi tidak
+  berhasil didecode, tandai sebagai tidak pasti, jangan mengarang link.
+- Field yang tidak cukup bukti harus diomit, bukan dipoles.
+
 ## Output Contract
 
 Output hanya field yang ada datanya dari input atau sumber terverifikasi. Hilangkan field kosong.
@@ -201,9 +224,11 @@ Typed fields must contain raw machine-friendly values.
 
 - Use only one of:
   - `0` = Normal
-  - `2` = Urgent
+  - `2` = Urgent 
   - `3` = Pinned
-- Default to `0` unless the user/source explicitly asks urgent/pinned.
+- Default to `0`.
+  - When less than 14 days set to `2` unless the source says otherwise.
+  
 
 ### WYSIWYG Fields
 
@@ -232,6 +257,8 @@ Rules:
 - 1 short paragraph.
 - Only write when company profile is present or verified.
 - Do not use generic filler like "perusahaan yang terus berkembang" unless the source says so.
+- A logo, brand name, or recruitment poster alone is not enough evidence for
+  `tentang_perusahaan`.
 
 Good:
 
@@ -244,6 +271,8 @@ Good:
 - Daily tasks, responsibilities, and work scope.
 - Put operational action here, not candidate qualities.
 - If the source has no task details, omit this field.
+- Do not infer duties from the job title. For example, "Mobile App Developer"
+  alone is not evidence for "mengembangkan aplikasi mobile".
 
 Good:
 

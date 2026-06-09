@@ -3,6 +3,8 @@ from __future__ import annotations
 import base64
 import mimetypes
 import os
+import shutil
+import subprocess
 from pathlib import Path
 
 from opencode_vision import ocr as vision_ocr
@@ -11,6 +13,41 @@ from automation.config import google_ai_studio_key
 from automation.models import AgentError
 from automation.ai.qr import qr_context_text
 from automation.web.exa import exa_context_text
+
+
+def local_ocr_text(image_path: Path) -> str | None:
+    executable = shutil.which("tesseract")
+    if not executable:
+        return None
+
+    languages = subprocess.run(
+        [executable, "--list-langs"],
+        capture_output=True,
+        check=False,
+        text=True,
+        timeout=15,
+    )
+    available = {
+        line.strip()
+        for line in languages.stdout.splitlines()[1:]
+        if line.strip()
+    }
+    language = next(
+        (candidate for candidate in ("ind", "eng", "afr") if candidate in available),
+        None,
+    )
+    if language is None:
+        return None
+
+    result = subprocess.run(
+        [executable, str(image_path.resolve()), "stdout", "-l", language],
+        capture_output=True,
+        check=False,
+        text=True,
+        timeout=60,
+    )
+    text = result.stdout.strip()
+    return text if result.returncode == 0 and text else None
 
 
 def image_mime_type(image_path: Path) -> str:

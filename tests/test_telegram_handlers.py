@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+import threading
+import time
+from pathlib import Path
 from typing import Any
 
 import pytest
 
-from automation.models import TelegramPostDirective
+from automation.models import (
+    BuildResult,
+    NormalizedPayload,
+    TelegramPostDirective,
+)
 from automation.telegram import handlers
 
 
@@ -329,3 +336,65 @@ def test_owner_cannot_set_invalid_runtime_username(
 
     assert handlers.BOT_SETTINGS.extra_telegram_usernames == []
     assert response.startswith("Invalid Telegram username list:")
+
+
+def test_flyer_processing_is_serialized_across_threads(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    active = 0
+    max_active = 0
+    state_lock = threading.Lock()
+    sent: list[str] = []
+    counter = 0
+
+    monkeypatch.setattr(
+        handlers,
+        "first_photo_file_id",
+        lambda message: str(message["message_id"]),
+    )
+
+    def fake_download(file_id: str) -> Path:
+        nonlocal counter
+        counter += 1
+        path = tmp_path / f"flyer-{counter}.jpg"
+        path.write_bytes(b"image")
+        return path
+
+    def fake_build_result(*args, **kwargs) -> BuildResult:
+        nonlocal active, max_active
+        with state_lock:
+            active += 1
+            max_active = max(max_active, active)
+        time.sleep(0.05)
+        with state_lock:
+            active -= 1
+        return BuildResult(
+            mode="mock_preview",
+            payload=NormalizedPayload(
+                title="Test | AI posted draft",
+            ),
+        )
+
+    monkeypatch.setattr(handlers, "download_telegram_file", fake_download)
+    monkeypatch.setattr(handlers, "build_result", fake_build_result)
+    monkeypatch.setattr(
+        handlers,
+        "telegram_send_message",
+        lambda chat_id, text: sent.append(str(text)),
+    )
+
+    threads = [
+        threading.Thread(
+            target=handlers.process_flyer_message,
+            args=(123, image_message(message_id=message_id), None),
+        )
+        for message_id in (1, 2)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert max_active == 1
+    assert len(sent) == 2

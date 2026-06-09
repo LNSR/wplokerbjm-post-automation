@@ -106,6 +106,34 @@ STRICT JSON CONTRACT:
 
 Rules:
 - Extract only facts visible in the flyer. Do not invent company profiles, salary, location, deadline, or contacts.
+- Treat every flyer independently. Ignore facts, companies, positions, and
+  contacts from previous images or requests.
+- The title and nama_perusahaan must contain words visibly present in the
+  current flyer. Never substitute a plausible company or role.
+- Omit tentang_perusahaan unless the flyer itself contains explicit company
+  profile text. A logo or company name alone is not a company profile.
+- Omit deskripsi_pekerjaan when the flyer only lists qualifications and does
+  not explicitly describe duties. Do not turn the job title into invented
+  duties.
+- Preserve requirements as visible facts. Do not add generic requirements
+  such as communication, teamwork, customer service, or experience unless the
+  flyer states them.
+- If the flyer text is blurry, partially unreadable, or OCR is uncertain,
+  return fewer fields. A sparse but verifiable payload is better than a
+  complete-looking hallucination.
+- Do not output polished generic filler such as:
+  "posisi ini bertanggung jawab...", "mengikuti program rekrutmen...",
+  "bekerja pada penempatan yang ditentukan perusahaan", or "lamaran dapat
+  dikirimkan melalui tautan berikut" unless equivalent words are actually
+  visible in the current flyer.
+- For cara_melamar and contact fields, output only concrete visible channels:
+  exact email, phone/WhatsApp, website URL, decoded QR URL, or physical
+  address. If only a QR code is visible and it cannot be decoded, mention
+  "QR code pendaftaran" in uncertain_fields instead of inventing a URL or
+  application instruction.
+- If the only visible facts are role/company/location, output only those facts
+  plus uncertain_fields. Do not synthesize descriptions, benefits, or
+  requirements from the role name.
 - If decoded QR code content is provided with the image, treat it as visible
   flyer evidence. Use QR URLs for situs_kontak or cara_melamar only when they
   are clearly application/contact links.

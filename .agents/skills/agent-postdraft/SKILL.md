@@ -100,6 +100,13 @@ Expected success response:
    - Use OCR only as a helper for tiny text, then verify the extracted facts
      against the image.
    - Extract only facts visible in the image or explicitly provided by user.
+   - When OCR/vision is unclear, prefer a sparse payload with uncertain fields
+     over a complete-looking draft. Do not fill missing description,
+     requirements, company profile, benefit, or application method with generic
+     prose.
+   - If title/company/contact values do not visibly belong to the current
+     image, stop before posting. This protects against stale provider output
+     from a previous flyer.
    - If multiple images are provided, process each image independently unless
      the user says they are one carousel/job.
 
@@ -120,6 +127,9 @@ Expected success response:
    - Convert cloned Meta Box fields to their stored array shapes before POST.
    - Always include `source` with the local image path when available.
    - Include at least one meaningful detail/contact field beyond title/company.
+   - Meaningful details must be visible in the source. Do not satisfy this rule
+     with generic AI prose such as "bertanggung jawab..." or "lamaran dapat
+     dikirimkan melalui tautan berikut" when the flyer does not say it.
 
 6. Summarize before POST.
    - Title.

@@ -44,6 +44,7 @@ _MEDIA_GROUP_LOCK = threading.Lock()
 _MEDIA_GROUPS: dict[str, TelegramMediaGroupState] = {}
 _MEDIA_GROUP_TIMERS: dict[str, threading.Timer] = {}
 _BULK_COMMANDS = BulkCommandStore(ttl_seconds=BULK_COMMAND_TTL_SECONDS)
+_FLYER_PROCESSING_LOCK = threading.Lock()
 MAX_CUSTOM_INSTRUCTION_LENGTH = 2000
 
 
@@ -275,14 +276,17 @@ def process_flyer_message(
 
     image_path = download_telegram_file(file_id)
     try:
-        result = build_result(
-            image_path,
-            post=directive is not None,
-            model=None,
-            custom_instruction=(
-                directive.instruction if directive is not None else None
-            ),
-        )
+        # opencode-vision uses process-global provider state and is not safe
+        # to run concurrently from webhook and media-group threads.
+        with _FLYER_PROCESSING_LOCK:
+            result = build_result(
+                image_path,
+                post=directive is not None,
+                model=None,
+                custom_instruction=(
+                    directive.instruction if directive is not None else None
+                ),
+            )
         telegram_send_message(chat_id, format_preview(result))
     except AgentError as error:
         telegram_send_message(chat_id, f"Failed: {error}")
