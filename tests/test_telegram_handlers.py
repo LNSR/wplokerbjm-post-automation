@@ -223,3 +223,109 @@ def test_unknown_image_command_is_rejected(
         "Unsupported image command. Use /post_prod [custom instruction], "
         "or remove the caption for a mock preview."
     ]
+
+
+def test_owner_can_add_runtime_extra_users(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TELEGRAM_USERNAME", "primary_owner")
+    handlers.BOT_SETTINGS.extra_telegram_usernames = ["existing_user"]
+
+    response = handlers.handle_command(
+        123,
+        "/add_users @Second_User, third_user @SECOND_USER",
+        is_owner=True,
+    )
+
+    assert handlers.BOT_SETTINGS.extra_telegram_usernames == [
+        "existing_user",
+        "second_user",
+        "third_user",
+    ]
+    assert response == (
+        "Runtime extra Telegram users now allowed: "
+        "@existing_user, @second_user, @third_user."
+    )
+
+
+def test_extra_user_cannot_change_runtime_access() -> None:
+    response = handlers.handle_command(
+        123,
+        "/add_users @another_user",
+        is_owner=False,
+    )
+
+    assert handlers.BOT_SETTINGS.extra_telegram_usernames == []
+    assert response == (
+        "Only the primary Telegram owner can change allowed users."
+    )
+
+
+def test_owner_can_clear_runtime_extra_users(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TELEGRAM_USERNAME", "primary_owner")
+    handlers.BOT_SETTINGS.extra_telegram_usernames = ["second_user"]
+
+    response = handlers.handle_command(
+        123,
+        "/reset_users",
+        is_owner=True,
+    )
+
+    assert handlers.BOT_SETTINGS.extra_telegram_usernames == []
+    assert response == "Runtime extra Telegram users cleared."
+
+
+def test_owner_can_remove_selected_runtime_users(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TELEGRAM_USERNAME", "primary_owner")
+    handlers.BOT_SETTINGS.extra_telegram_usernames = [
+        "first_user",
+        "second_user",
+        "third_user",
+    ]
+
+    response = handlers.handle_command(
+        123,
+        "/rm_users @SECOND_USER, @third_user",
+        is_owner=True,
+    )
+
+    assert handlers.BOT_SETTINGS.extra_telegram_usernames == ["first_user"]
+    assert response == (
+        "Runtime extra Telegram users removed: "
+        "@second_user, @third_user."
+    )
+
+
+def test_remove_unknown_runtime_user_keeps_current_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TELEGRAM_USERNAME", "primary_owner")
+    handlers.BOT_SETTINGS.extra_telegram_usernames = ["first_user"]
+
+    response = handlers.handle_command(
+        123,
+        "/rm_users @missing_user",
+        is_owner=True,
+    )
+
+    assert handlers.BOT_SETTINGS.extra_telegram_usernames == ["first_user"]
+    assert response == "No matching runtime extra Telegram users found."
+
+
+def test_owner_cannot_set_invalid_runtime_username(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TELEGRAM_USERNAME", "primary_owner")
+
+    response = handlers.handle_command(
+        123,
+        "/add_users invalid user!",
+        is_owner=True,
+    )
+
+    assert handlers.BOT_SETTINGS.extra_telegram_usernames == []
+    assert response.startswith("Invalid Telegram username list:")

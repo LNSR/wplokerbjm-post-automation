@@ -38,6 +38,13 @@ class FrozenStrictModel(BaseModel):
     )
 
 
+def normalize_telegram_username(value: str) -> str:
+    normalized = value.strip().lstrip("@").casefold()
+    if not re.fullmatch(r"[a-z0-9_]{5,32}", normalized):
+        raise ValueError("must be a valid Telegram username")
+    return normalized
+
+
 class WordpressConfig(FrozenStrictModel):
     base_url: StrictStr
     jwt: StrictStr
@@ -53,6 +60,24 @@ class BotSettings(StrictModel):
     wordpress_base_url: StrictStr | None = None
     jwt: StrictStr | None = None
     skill_markdown: StrictStr | None = None
+    extra_telegram_usernames: list[StrictStr] = Field(
+        default_factory=list,
+    )
+
+    @field_validator("extra_telegram_usernames")
+    @classmethod
+    def validate_extra_telegram_usernames(
+        cls,
+        values: list[str],
+    ) -> list[str]:
+        normalized: list[str] = []
+        for value in values:
+            username = normalize_telegram_username(value)
+            if username not in normalized:
+                normalized.append(username)
+        if len(normalized) > 20:
+            raise ValueError("cannot contain more than 20 usernames")
+        return normalized
 
 
 class RuntimeEnvironment(StrictModel):
@@ -98,10 +123,7 @@ class RuntimeEnvironment(StrictModel):
     @field_validator("telegram_username")
     @classmethod
     def validate_telegram_username(cls, value: str) -> str:
-        normalized = value.lstrip("@")
-        if not re.fullmatch(r"[A-Za-z0-9_]{5,32}", normalized):
-            raise ValueError("must be a valid Telegram username")
-        return normalized
+        return normalize_telegram_username(value)
 
     @field_validator("telegram_bot_token")
     @classmethod

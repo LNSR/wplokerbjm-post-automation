@@ -43,6 +43,7 @@ def clean_runtime_state(monkeypatch: pytest.MonkeyPatch) -> None:
     BOT_SETTINGS.wordpress_base_url = None
     BOT_SETTINGS.jwt = None
     BOT_SETTINGS.skill_markdown = None
+    BOT_SETTINGS.extra_telegram_usernames = []
 
 
 @pytest.fixture

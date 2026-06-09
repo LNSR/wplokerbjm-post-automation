@@ -5,6 +5,8 @@ import os
 import threading
 from typing import Any
 
+from pydantic import ValidationError
+
 from automation.ai.opencode.probe import probe_opencode
 from automation.config import BOT_SETTINGS, env_float
 from automation.main import build_result
@@ -13,11 +15,15 @@ from automation.models import (
     BuildResult,
     TelegramMediaGroupState,
     TelegramPostDirective,
+    normalize_telegram_username,
+    validation_error_summary,
 )
 from automation.skills import load_skill_markdown, read_uploaded_skill
 from automation.telegram.auth import (
     allowed_telegram_username,
+    allowed_telegram_usernames,
     authorize_update,
+    is_primary_telegram_user,
 )
 from automation.telegram.client import telegram_send_message
 from automation.telegram.files import (
@@ -112,7 +118,12 @@ def format_preview(result: BuildResult) -> str:
     return "\n".join(lines)
 
 
-def handle_command(chat_id: int | str, text: str) -> str:
+def handle_command(
+    chat_id: int | str,
+    text: str,
+    *,
+    is_owner: bool,
+) -> str:
     command, _, rest = text.strip().partition(" ")
     command = command.split("@", 1)[0].lower()
     rest = rest.strip()
@@ -124,6 +135,9 @@ def handle_command(chat_id: int | str, text: str) -> str:
             "/refresh_jwt <wp_username> <wp_password>\n"
             "/set_skill as the caption of an attached SKILL.md file\n"
             "/reset_skill to restore the configured/repository fallback\n"
+            "/add_users @username1 @username2 (owner only)\n"
+            "/rm_users @username1 [@username2] (owner only)\n"
+            "/reset_users (owner only)\n"
             "/status\n"
             "Send a flyer image to preview a mock payload.\n"
             "Use /post_prod [custom instruction] as an image caption, "
@@ -156,6 +170,67 @@ def handle_command(chat_id: int | str, text: str) -> str:
         _, source = load_skill_markdown()
         return f"Runtime skill upload cleared. Active fallback: {source}."
 
+    if command in {"/add_users"}:
+        if not is_owner:
+            return "Only the primary Telegram owner can change allowed users."
+        usernames = rest.replace(",", " ").split()
+        if not usernames:
+            return "Usage: /add_users @username1 @username2"
+        primary = allowed_telegram_username()
+        extras = [
+            username
+            for username in (
+                *BOT_SETTINGS.extra_telegram_usernames,
+                *usernames,
+            )
+            if username.lstrip("@").casefold() != primary
+        ]
+        try:
+            BOT_SETTINGS.extra_telegram_usernames = extras
+        except ValidationError as error:
+            return "Invalid Telegram username list: " + validation_error_summary(
+                error,
+            )
+        if not BOT_SETTINGS.extra_telegram_usernames:
+            return "No extra Telegram users configured."
+        formatted = ", ".join(
+            f"@{username}"
+            for username in BOT_SETTINGS.extra_telegram_usernames
+        )
+        return f"Runtime extra Telegram users now allowed: {formatted}."
+
+    if command in {"/rm_users"}:
+        if not is_owner:
+            return "Only the primary Telegram owner can change allowed users."
+        usernames = rest.replace(",", " ").split()
+        if not usernames:
+            return "Usage: /rm_users @username1 [@username2]"
+        try:
+            requested = {
+                normalize_telegram_username(username)
+                for username in usernames
+            }
+        except ValueError as error:
+            return f"Invalid Telegram username list: {error}"
+
+        existing = BOT_SETTINGS.extra_telegram_usernames
+        removed = [
+            username for username in existing if username in requested
+        ]
+        BOT_SETTINGS.extra_telegram_usernames = [
+            username for username in existing if username not in requested
+        ]
+        if not removed:
+            return "No matching runtime extra Telegram users found."
+        formatted = ", ".join(f"@{username}" for username in removed)
+        return f"Runtime extra Telegram users removed: {formatted}."
+
+    if command == "/reset_users":
+        if not is_owner:
+            return "Only the primary Telegram owner can change allowed users."
+        BOT_SETTINGS.extra_telegram_usernames = []
+        return "Runtime extra Telegram users cleared."
+
     if command == "/status":
         _, skill_source = load_skill_markdown()
         opencode_status = probe_opencode()
@@ -169,12 +244,16 @@ def handle_command(chat_id: int | str, text: str) -> str:
             opencode_status.model_dump(exclude_none=True),
             ensure_ascii=False,
         )
+        allowed_users = ", ".join(
+            f"@{username}"
+            for username in sorted(allowed_telegram_usernames())
+        )
         return (
             "Current runtime settings:\n"
             f"WordPress domain: {wordpress_domain}\n"
             f"JWT: {'runtime set' if BOT_SETTINGS.jwt else 'env fallback'}\n"
             f"Skill: {skill_source}\n"
-            f"Allowed Telegram username: @{allowed_telegram_username()}\n"
+            f"Allowed Telegram users: {allowed_users}\n"
             f"OpenCode: {opencode_json}"
         )
 
@@ -340,7 +419,14 @@ def handle_telegram_update(update: dict[str, Any]) -> None:
         return
 
     if text.startswith("/") and not first_photo_file_id(message):
-        telegram_send_message(chat_id, handle_command(chat_id, text))
+        telegram_send_message(
+            chat_id,
+            handle_command(
+                chat_id,
+                text,
+                is_owner=is_primary_telegram_user(update),
+            ),
+        )
         return
 
     if not first_photo_file_id(message):

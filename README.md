@@ -310,7 +310,29 @@ curl "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo"
 /set_jwt <wordpress_username> <wordpress_password>
 /set_skill (caption on an attached SKILL.md document)
 /reset_skill
+/add_users @username1 @username2
+/rm_users @username1 [@username2]
+/reset_users
 ```
+
+### Runtime Telegram Access
+
+`TELEGRAM_USERNAME` remains the permanent primary owner configured through the
+deployment environment. Only that owner can add to, selectively remove from,
+or clear the runtime list of additional users:
+
+```text
+/add_users @editor_one @editor_two
+/rm_users @editor_one
+/reset_users
+```
+
+`/add_users` appends new users without removing existing entries. `/rm_users`
+removes only the named users, while `/reset_users` clears all additional users.
+Usernames may be separated by spaces or commas, are case-insensitive, and are
+deduplicated. Runtime users can operate the bot but cannot change this access
+list. The list is stored only in process memory and is cleared whenever the
+service restarts or redeploys.
 
 ### Set or Refresh JWT
 
@@ -411,6 +433,7 @@ The following Telegram settings are runtime-only:
 - WordPress domain set by `/set_domain`
 - JWT refreshed by `/refresh_jwt`
 - Uploaded `SKILL.md`
+- Additional Telegram users set by `/add_users`
 
 They reset when Render restarts or redeploys. Their env and repository values
 remain the fallback source of truth.
@@ -420,6 +443,7 @@ remain the fallback source of truth.
 - Keep all JWTs, API keys, bot tokens, and WordPress passwords in Render secrets.
 - Never commit `.env`.
 - Use a long random `TELEGRAM_WEBHOOK_SECRET`.
-- Telegram access is restricted by exact username from `TELEGRAM_USERNAME`.
-- Changing the allowed username requires an env update and redeployment.
+- The primary Telegram owner is restricted by exact `TELEGRAM_USERNAME`.
+- Only the primary owner can manage temporary additional users.
+- Changing the primary owner requires an env update and redeployment.
 - The bot never includes JWT values in normal responses.

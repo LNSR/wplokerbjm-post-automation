@@ -114,7 +114,7 @@ Rules:
   flyer/QR. Do not invent salary, requirements, deadline, or job facts from web
   search alone.
 - Do not include ringkasanPekerjaan.
-- title must be short and searchable. Use "Posisi | Perusahaan" when company is visible.
+- title must be short and searchable
 - Append "{TITLE_SUFFIX}" to title.
 - If gender is visible, use only the visible requirement: "Pria", "Wanita", or "Pria/Wanita".
 - If gender is not visible, set gender to "Pria/Wanita".

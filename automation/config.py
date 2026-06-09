@@ -19,6 +19,7 @@ BOT_SETTINGS = BotSettings(
     wordpress_base_url=None,
     jwt=None,
     skill_markdown=None,
+    extra_telegram_usernames=[],
 )
 
 
