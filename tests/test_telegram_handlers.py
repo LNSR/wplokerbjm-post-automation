@@ -150,6 +150,38 @@ def test_standalone_post_prod_arms_bulk_mode(
     ]
 
 
+def test_format_preview_mock_shows_model() -> None:
+    result = BuildResult(
+        mode="mock_preview",
+        payload=NormalizedPayload(title="Mock"),
+        model_name="gemini:gemini-2.5-flash",
+    )
+    text = handlers.format_preview(result)
+    assert "Mock payload preview only" in text
+    assert "Model: gemini:gemini-2.5-flash" in text
+
+
+def test_format_preview_post_shows_model() -> None:
+    result = BuildResult(
+        mode="post_prod",
+        payload=NormalizedPayload(title="Mock"),
+        model_name="gemini:gemini-2.5-flash -> opencode:zen/mimo",
+        http_status=201,
+        wordpress={"id": 42},
+    )
+    text = handlers.format_preview(result)
+    assert "PROD draft posted." in text
+    assert "Model: gemini:gemini-2.5-flash -> opencode:zen/mimo" in text
+
+def test_format_preview_shows_unknown_model_if_none() -> None:
+    result = BuildResult(
+        mode="mock_preview",
+        payload=NormalizedPayload(title="Mock"),
+    )
+    text = handlers.format_preview(result)
+    assert "Model: unknown" in text
+
+
 def test_plain_album_without_command_is_mock_preview(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -198,6 +230,77 @@ def test_post_directive_extracts_custom_instruction() -> None:
     assert directive == TelegramPostDirective(
         instruction="Use the decoded QR URL as the application link",
     )
+
+
+def test_refresh_jwt_uses_deployment_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+
+    def fake_request_graphql_jwt() -> str:
+        nonlocal calls
+        calls += 1
+        return "aaa.bbb.ccc"
+
+    monkeypatch.setattr(
+        handlers,
+        "request_graphql_jwt",
+        fake_request_graphql_jwt,
+    )
+
+    response = handlers.handle_command(
+        123,
+        "/refresh_jwt",
+        is_owner=True,
+    )
+
+    assert calls == 1
+    assert handlers.BOT_SETTINGS.jwt == "aaa.bbb.ccc"
+    assert response == (
+        "JWT refreshed from GraphQL and stored for this running bot instance."
+    )
+
+
+def test_refresh_jwt_rejects_chat_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    called = False
+
+    def fake_request_graphql_jwt() -> str:
+        nonlocal called
+        called = True
+        return "aaa.bbb.ccc"
+
+    monkeypatch.setattr(
+        handlers,
+        "request_graphql_jwt",
+        fake_request_graphql_jwt,
+    )
+
+    response = handlers.handle_command(
+        123,
+        "/refresh_jwt unsafe_username unsafe_password",
+        is_owner=True,
+    )
+
+    assert called is False
+    assert handlers.BOT_SETTINGS.jwt is None
+    assert response == (
+        "/refresh_jwt does not accept credentials or other arguments. "
+        "Configure WP_LOGIN_USERNAME and WP_LOGIN_PASSWORD in the "
+        "deployment environment."
+    )
+
+
+def test_set_jwt_alias_is_removed() -> None:
+    response = handlers.handle_command(
+        123,
+        "/set_jwt unsafe_username unsafe_password",
+        is_owner=True,
+    )
+
+    assert handlers.BOT_SETTINGS.jwt is None
+    assert response == "Unknown command. Send /help for options."
 
 
 def test_unknown_image_command_is_rejected(
@@ -374,6 +477,7 @@ def test_flyer_processing_is_serialized_across_threads(
             payload=NormalizedPayload(
                 title="Test | AI posted draft",
             ),
+            model_name="mock:model",
         )
 
     monkeypatch.setattr(handlers, "download_telegram_file", fake_download)

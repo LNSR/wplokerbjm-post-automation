@@ -35,9 +35,26 @@ def test_public_url_uses_render_hostname() -> None:
 def test_validate_runtime_environment_accepts_valid_env(valid_env: dict[str, str]) -> None:
     settings = validate_runtime_environment(environ=valid_env, root=Path.cwd())
 
-    assert settings.ai_provider == "opencode"
+    assert settings.ai_provider == "gemini"
     assert settings.telegram_username == "maulana_test"
     assert settings.public_base_url == "https://bot.example.test"
+
+
+def test_validate_runtime_environment_masks_secret_fields(
+    valid_env: dict[str, str],
+) -> None:
+    settings = validate_runtime_environment(environ=valid_env, root=Path.cwd())
+    dumped = settings.model_dump()
+
+    assert settings.wordpress_jwt.get_secret_value() == valid_env["WPLBJM_JWT_PROD"]
+    assert settings.telegram_bot_token.get_secret_value() == valid_env["TELEGRAM_BOT_TOKEN"]
+    assert settings.telegram_webhook_secret.get_secret_value() == valid_env["TELEGRAM_WEBHOOK_SECRET"]
+    assert settings.opencode_api_key is not None
+    assert settings.opencode_api_key.get_secret_value() == valid_env["OPENCODE_API_KEY"]
+    assert dumped["wordpress_jwt"] != valid_env["WPLBJM_JWT_PROD"]
+    assert dumped["telegram_bot_token"] != valid_env["TELEGRAM_BOT_TOKEN"]
+    assert dumped["telegram_webhook_secret"] != valid_env["TELEGRAM_WEBHOOK_SECRET"]
+    assert dumped["opencode_api_key"] != valid_env["OPENCODE_API_KEY"]
 
 
 def test_validate_runtime_environment_requires_public_url(
@@ -76,9 +93,9 @@ def test_validate_runtime_environment_rejects_invalid_values(
 def test_validate_runtime_environment_requires_ai_key(
     valid_env: dict[str, str],
 ) -> None:
-    valid_env.pop("OPENCODE_API_KEY")
+    valid_env.pop("GOOGLE_AI_STUDIO_KEY")
 
-    with pytest.raises(AgentError, match="OpenCode requires"):
+    with pytest.raises(AgentError, match="Gemini requires"):
         validate_runtime_environment(environ=valid_env, root=Path.cwd())
 
 

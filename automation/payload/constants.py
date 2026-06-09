@@ -3,7 +3,15 @@ from __future__ import annotations
 
 TITLE_SUFFIX = " | AI posted draft"
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
-DEFAULT_OPENCODE_CHAIN = "zen:mimo-v2.5-free:chat,go:minimax-m3:messages,go:mimo-v2.5:chat"
+DEFAULT_OPENCODE_CHAIN = (
+    "zen:mimo-v2.5-free:chat,"
+    "go:kimi-k2.5:chat,"
+    "go:kimi-k2.6:chat,"
+    "go:mimo-v2.5:chat,"
+    "go:minimax-m3:messages,"
+    "go:qwen3.6-plus:messages,"
+    "go:qwen3.7-plus:messages"
+)
 SOCIAL_MEDIA_KEYS = {
     "WhatsApp",
     "Instagram",

@@ -13,6 +13,7 @@ from automation.models import (
     RuntimeEnvironment,
     validation_error_summary,
 )
+from automation.payload.constants import DEFAULT_OPENCODE_CHAIN
 
 
 BOT_SETTINGS = BotSettings(
@@ -127,16 +128,16 @@ def validate_runtime_environment(
     env = environ or os.environ
     data = {
         "wordpress_base_url": env.get("WPLBJM_API_BASE_URL_PROD", ""),
-        "wordpress_domain": env.get("WPLBJM_WORDPRESS_DOMAIN") or None,
+        "wordpress_domain": env.get("WPLBJM_API_BASE_URL_PROD") or None,
         "wordpress_jwt": env.get("WPLBJM_JWT_PROD", ""),
         "telegram_username": env.get("TELEGRAM_USERNAME", ""),
         "telegram_bot_token": env.get("TELEGRAM_BOT_TOKEN", ""),
         "telegram_webhook_secret": env.get("TELEGRAM_WEBHOOK_SECRET", ""),
         "public_base_url": public_url_from_env(env),
-        "ai_provider": (env.get("AI_PROVIDER") or "opencode").lower(),
+        "ai_provider": (env.get("AI_PROVIDER") or "gemini").lower(),
         "opencode_model_chain": env.get(
             "OPENCODE_MODEL_CHAIN",
-            "zen:mimo-v2.5-free:chat,go:minimax-m3:messages,go:mimo-v2.5:chat",
+            DEFAULT_OPENCODE_CHAIN,
         ),
         "opencode_api_key": env.get("OPENCODE_API_KEY") or None,
         "google_ai_studio_key": env.get("GOOGLE_AI_STUDIO_KEY") or None,

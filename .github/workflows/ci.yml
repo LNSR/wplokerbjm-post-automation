@@ -36,16 +36,16 @@ jobs:
 
       - name: Validate deployment configuration contract
         env:
-          WPLBJM_API_BASE_URL_PROD: https://wp.example.test
-          WPLBJM_WORDPRESS_DOMAIN: https://wp.example.test
-          WPLBJM_JWT_PROD: eyJ0eXAiOiJKV1Qi.e30.signaturevalue
-          TELEGRAM_USERNAME: ci_test_user
-          TELEGRAM_BOT_TOKEN: 123456789:abcdefghijklmnopqrstuvwxyzABCDE
-          TELEGRAM_WEBHOOK_SECRET: ci_webhook_secret_12345
-          PUBLIC_BASE_URL: https://bot.example.test
-          AI_PROVIDER: opencode
-          OPENCODE_API_KEY: ci-opencode-key-123456
-          OPENCODE_MODEL_CHAIN: zen:mimo-v2.5-free:chat
+          WPLBJM_API_BASE_URL_PROD: ${{ secrets.WPLBJM_API_BASE_URL_PROD }}
+          WPLBJM_JWT_PROD: ${{ secrets.WPLBJM_JWT_PROD }}
+          TELEGRAM_USERNAME: ${{ secrets.TELEGRAM_USERNAME }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
+          GOOGLE_AI_STUDIO_KEY: ${{ secrets.GOOGLE_AI_STUDIO_KEY }}
+          PUBLIC_BASE_URL: https://wp.lokerbanjarmasin.my.id
+          AI_PROVIDER: gemini
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          OPENCODE_MODEL_CHAIN: zen:mimo-v2.5-free:chat,go:kimi-k2.5:chat,go:kimi-k2.6:chat,go:mimo-v2.5:chat,go:minimax-m3:messages,go:qwen3.6-plus:messages,go:qwen3.7-plus:messages
           SKILL_MD_PATH: .agents/skills/agent-postdraft/SKILL.md
         run: uv run --frozen agent --check-config
 
@@ -94,17 +94,14 @@ jobs:
           EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
           GOOGLE_AI_STUDIO_KEY: ${{ secrets.GOOGLE_AI_STUDIO_KEY }}
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
-          AI_PROVIDER: opencode
-          OPENCODE_MODEL_CHAIN: zen:mimo-v2.5-free:chat,go:minimax-m3:messages,go:mimo-v2.5:chat
-          ALLOW_DIRECT_IMAGE_FALLBACK: "1"
+          AI_PROVIDER: gemini
+          OPENCODE_MODEL_CHAIN: go:kimi-k2.6:chat,go:kimi-k2.5:chat,go:minimax-m3:messages,go:mimo-v2.5:chat,go:qwen3.6-plus:messages,go:qwen3.7-plus:messages,zen:mimo-v2.5-free:chat
           EXA_SEARCH_TYPE: auto
           DISABLE_WEB_ENRICHMENT: ""
           SKILL_MD_PATH: .agents/skills/agent-postdraft/SKILL.md
           TELEGRAM_MEDIA_GROUP_DELAY_SECONDS: "2"
-          TELEGRAM_BULK_COMMAND_TTL_SECONDS: "90"
+          TELEGRAM_BULK_COMMAND_TTL_SECONDS: "60"
           PUBLIC_BASE_URL: ""
-          WPLBJM_WORDPRESS_DOMAIN: https://wp.lokerbanjarmasin.my.id
-          OPENCODE_VISION_MODE: analyze
         run: uv run --frozen python scripts/sync-render-env.py
 
       - name: Trigger Render deploy

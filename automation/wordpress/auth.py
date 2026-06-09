@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import http.cookies
 import json
-import os
 import ssl
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -21,10 +20,12 @@ def wordpress_config() -> WordpressConfig:
 
 
 def graphql_base_url() -> str:
-    return (BOT_SETTINGS.wordpress_base_url or os.getenv("WPLBJM_WORDPRESS_DOMAIN") or env_value("WPLBJM_API_BASE_URL_PROD")).rstrip("/")
+    return (BOT_SETTINGS.wordpress_base_url or env_value("WPLBJM_API_BASE_URL_PROD")).rstrip("/")
 
 
-def request_graphql_jwt(username: str, password: str) -> str:
+def request_graphql_jwt() -> str:
+    username = env_value("WP_LOGIN_USERNAME")
+    password = env_value("WP_LOGIN_PASSWORD")
     mutation = """
 mutation GetJWT($username: String, $password: String, $token: String) {
   jwt(username: $username, password: $password, token: $token)

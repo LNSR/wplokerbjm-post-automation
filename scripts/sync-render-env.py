@@ -25,15 +25,12 @@ ALLOWLIST = frozenset(
         # Inline config (non-sensitive, set in workflow env):
         "AI_PROVIDER",
         "OPENCODE_MODEL_CHAIN",
-        "ALLOW_DIRECT_IMAGE_FALLBACK",
         "EXA_SEARCH_TYPE",
         "DISABLE_WEB_ENRICHMENT",
         "SKILL_MD_PATH",
         "TELEGRAM_MEDIA_GROUP_DELAY_SECONDS",
         "TELEGRAM_BULK_COMMAND_TTL_SECONDS",
         "PUBLIC_BASE_URL",
-        "WPLBJM_WORDPRESS_DOMAIN",
-        "OPENCODE_VISION_MODE",
     }
 )
 
@@ -83,6 +80,10 @@ def main(argv: list[str] | None = None) -> int:
         value = os.environ.get(key, "")
         if args.dry_run:
             print(f"[DRY-RUN] would sync {key}")
+            continue
+
+        if value == "":
+            print(f"[SKIP] {key} (empty value)")
             continue
 
         status, _ = _render_request(

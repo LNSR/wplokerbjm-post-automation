@@ -44,22 +44,15 @@ def test_identity_evidence_rejects_wrong_company() -> None:
         )
 
 
-def test_extractor_skips_text_vision_without_independent_ocr(
+def test_extractor_uses_opencode_direct_image_when_requested(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     image = tmp_path / "flyer.jpg"
     image.write_bytes(b"image")
-    text_vision_called = False
     direct_called = False
 
     monkeypatch.setenv("AI_PROVIDER", "opencode")
-    monkeypatch.setattr(extractor, "local_ocr_text", lambda path: None)
-
-    def unexpected_text_vision(path: Path) -> str:
-        nonlocal text_vision_called
-        text_vision_called = True
-        return "stale text"
 
     def fake_direct(
         image_path: Path,
@@ -73,11 +66,6 @@ def test_extractor_skips_text_vision_without_independent_ocr(
         direct_called = True
         return {"title": "Sales to Sampit"}
 
-    monkeypatch.setattr(
-        extractor,
-        "analyze_image_with_opencode_vision",
-        unexpected_text_vision,
-    )
     monkeypatch.setattr(
         extractor,
         "opencode_attempts",
@@ -95,32 +83,26 @@ def test_extractor_skips_text_vision_without_independent_ocr(
         fake_direct,
     )
 
-    payload = extractor.extract_payload_from_image(image, {})
+    payload, resolved = extractor.extract_payload_from_image(image, {})
 
     assert payload == {"title": "Sales to Sampit"}
-    assert text_vision_called is False
+    assert resolved == "opencode:zen/vision-model"
     assert direct_called is True
 
 
-def test_text_vision_uses_independent_ocr_for_identity_gate(
+def test_gemini_failure_falls_back_to_ordered_opencode_direct_image(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     image = tmp_path / "flyer.jpg"
     image.write_bytes(b"image")
-    captured: list[str] = []
 
-    monkeypatch.setenv("AI_PROVIDER", "opencode")
-    monkeypatch.setenv("ALLOW_DIRECT_IMAGE_FALLBACK", "0")
+    monkeypatch.setenv("AI_PROVIDER", "gemini")
+    monkeypatch.setenv("GEMINI_MODEL", "gemini-test")
     monkeypatch.setattr(
         extractor,
-        "local_ocr_text",
-        lambda path: "SALES TO SAMPIT BEHAESTEX",
-    )
-    monkeypatch.setattr(
-        extractor,
-        "analyze_image_with_opencode_vision",
-        lambda path: "PT Garam recruitment",
+        "extract_payload_with_gemini",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AgentError("rate limited")),
     )
     monkeypatch.setattr(
         extractor,
@@ -128,34 +110,32 @@ def test_text_vision_uses_independent_ocr_for_identity_gate(
         lambda model=None: [
             OpenCodeAttempt(
                 provider="zen",
-                model="text-model",
+                model="mimo-v2.5-free",
                 endpoint_style="chat",
             )
         ],
     )
 
-    def fake_text_extract(
+    def fake_direct(
         image_path: Path,
         options: dict[str, object],
         attempt: OpenCodeAttempt,
-        vision_text: str,
         *,
-        evidence_text: str,
+        evidence_text: str | None = None,
         custom_instruction: str | None = None,
     ) -> dict[str, str]:
-        captured.append(evidence_text)
-        raise AgentError("model title does not match the current flyer OCR")
+        return {"title": "Sales to Sampit"}
 
     monkeypatch.setattr(
         extractor,
-        "extract_payload_with_opencode",
-        fake_text_extract,
+        "extract_payload_with_opencode_direct_image",
+        fake_direct,
     )
 
-    with pytest.raises(AgentError, match="model title does not match"):
-        extractor.extract_payload_from_image(image, {})
+    payload, resolved = extractor.extract_payload_from_image(image, {})
 
-    assert captured == ["SALES TO SAMPIT BEHAESTEX"]
+    assert payload == {"title": "Sales to Sampit"}
+    assert resolved == "gemini:gemini-test → opencode:zen/mimo-v2.5-free"
 
 
 def test_sanitize_payload_removes_generic_ai_description() -> None:

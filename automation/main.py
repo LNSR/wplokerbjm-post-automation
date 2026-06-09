@@ -25,7 +25,7 @@ def build_result(
     load_environment()
     config = wordpress_config()
     options = ingest_options(config)
-    extracted = extract_payload_from_image(
+    extracted, resolved_model = extract_payload_from_image(
         image_path,
         options,
         model=model,
@@ -41,6 +41,7 @@ def build_result(
         "mode": "post_prod" if post else "mock_preview",
         "payload": payload,
         "warnings": warnings,
+        "model_name": resolved_model,
     }
 
     if post:

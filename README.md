@@ -5,7 +5,7 @@ WordPress `lowongan` drafts.
 
 The service:
 
-- Reads flyer images with OpenCode Zen first, then OpenCode Go fallback.
+- Reads flyer images with Gemini, then OpenCode Go fallback.
 - Decodes QR codes deterministically before AI extraction and passes the
   decoded content into the model context.
 - Optionally enriches extraction context with Exa web search when `EXA_API_KEY`
@@ -20,35 +20,38 @@ The service:
 
 ```mermaid
 flowchart TD
-    subgraph Inputs
-        A[Telegram Bot / Local CLI] -->|Image Flyer| B[QR Code Decoder]
+    A[Telegram Bot / Local CLI] -->|Flyer Image| B[Load Env & WP Config]
+    B --> C[Fetch Taxonomy Options<br/>WordPress REST API]
+
+    C --> D{AI Provider?}
+
+    subgraph gemini [Gemini Path]
+        D -- gemini --> E[QR Code Decoder]
+        E --> F{EXA_API_KEY?}
+        F -- yes --> G[Exa Web Search<br/>enrichment]
+        F -- no --> H[Gemini API]
+        G --> H
+        A -.->|Image| H
+        E -.->|QR Context| H
     end
 
-    subgraph Pre-processing
-        B -->|Image + Decoded QR| C[Vision AI<br/>OpenCode / Gemini]
-        C -->|Extracted Raw Text| D{EXA_API_KEY?}
-        D -- Yes --> E[Exa Web Search<br/>Enrichment]
-        D -- No --> F
-        E --> F[WordPress API<br/>Fetch Taxonomy Options]
+    subgraph opencode [OpenCode Path]
+        D -- opencode --> I[Local OCR + QR Decode]
+        I --> J[OpenCode Vision<br/>Image → Text]
+        J --> K[OpenCode LLM Chain<br/>Zen / Go with Skill Prompt]
+        I --> K
     end
 
-    subgraph Processing & AI
-        F --> G[LLM Extraction<br/>OpenCode Zen/Go or Gemini]
-        G -->|Apply job-copywriter skill| H[Structured JSON Payload]
-        H -->|Apply agent-postdraft skill| I[Field Normalization]
-    end
+    H --> L[Structured JSON]
+    K --> L
 
-    subgraph WordPress Delivery
-        I --> J[Build Multipart Form<br/>Payload + Original Flyer]
-        J -->|POST + JWT Auth| K[WP REST Ingest Endpoint]
-        K --> L[WordPress Draft Lowongan]
-    end
+    L --> M[Skill Rules + Normalization]
+    M --> N[Build Multipart Form<br/>Payload + Original Flyer]
+    N -->|JWT Auth| O[WP REST Ingest]
+    O --> P[Draft Lowongan]
 ```
 
 ## Code Layout
-
-`agent-telegram.py` is now only a compatibility wrapper around
-`automation.main`. New code should live in the `automation/` package:
 
 ```text
 automation/
@@ -56,11 +59,17 @@ automation/
   config.py              env loading, path helpers, API key lookup
   skills.py              SKILL.md loading from upload, env path, or bundled files
   main.py                CLI orchestration and build_result()
-  ai/                    prompt building, Gemini fallback, OpenCode extraction
-  ai/opencode/           OpenCode clients, vision preprocessing, probes
+  ai/                    prompt building, Gemini and OpenCode extraction
+  ai/opencode/           OpenCode direct-image clients and probes
+  web/                   Exa search enrichment for contact/address validation
   wordpress/             JWT auth, option fetching, multipart draft posting
   payload/               constants and payload normalization
   telegram/              auth, Bot API client, file download, handlers, server
+
+scripts/
+  sync-render-env.py     Pipeline script for syncing Github Secrets to Render ENV
+tests/                   Unit test using pytest
+scrap.py                 one-off script for scraping Instragram
 ```
 
 The package exposes a console command:
@@ -73,7 +82,7 @@ uv run agent --help
 
 - Python 3.14
 - [`uv`](https://docs.astral.sh/uv/)
-- OpenCode Zen or Go API key
+- AI provider credentials for Gemini and OpenCode
 - WordPress with the WPLokerBJM GraphQL JWT mutation and REST ingest endpoints
 - Telegram bot token from BotFather
 
@@ -82,42 +91,12 @@ uv run agent --help
 Copy `.env.example` to `.env` for local development. On Render, add the same
 values under **Environment**.
 
-```env
-WPLBJM_API_BASE_URL_PROD=https://wp.example.com
-WPLBJM_WORDPRESS_DOMAIN=https://wp.example.com
-
-WPLBJM_JWT_PROD=
-
-WP_LOGIN_USERNAME=
-WP_LOGIN_PASSWORD=
-
-AI_PROVIDER=opencode
-OPENCODE_API_KEY=
-OPENCODE_MODEL_CHAIN=zen:mimo-v2.5-free:chat,go:minimax-m3:messages,go:mimo-v2.5:chat
-OPENCODE_VISION_MODE=analyze
-ALLOW_DIRECT_IMAGE_FALLBACK=1
-ALLOW_GEMINI_FALLBACK=
-GOOGLE_AI_STUDIO_KEY=
-GEMINI_MODEL=
-EXA_API_KEY=
-EXA_SEARCH_TYPE=auto
-DISABLE_WEB_ENRICHMENT=
-
-TELEGRAM_USERNAME=allowed_username_without_at
-TELEGRAM_BOT_TOKEN=
-TELEGRAM_WEBHOOK_SECRET=
-PUBLIC_BASE_URL=
-
-SKILL_MD_PATH=.agents/skills/agent-postdraft/SKILL.md
-```
-
 ### Environment Notes
 
 - `TELEGRAM_USERNAME` is the only Telegram username allowed to use the bot.
   It is read from env and cannot be changed through Telegram. Change it by
   updating the environment and redeploying.
-- `TELEGRAM_WEBHOOK_SECRET` is compared with Telegram's
-  `X-Telegram-Bot-Api-Secret-Token` header.
+- `TELEGRAM_WEBHOOK_SECRET` is compared with Telegram's `X-Telegram-Bot-Api-Secret-Token` header.
 - `TELEGRAM_MEDIA_GROUP_DELAY_SECONDS` controls how long the bot waits for
   sibling items in one Telegram album. The default is `2`.
 - `TELEGRAM_BULK_COMMAND_TTL_SECONDS` controls how long `/post_prod` is
@@ -127,37 +106,26 @@ SKILL_MD_PATH=.agents/skills/agent-postdraft/SKILL.md
   Render's `RENDER_EXTERNAL_URL`, then `RENDER_EXTERNAL_HOSTNAME`.
 - Set `PUBLIC_BASE_URL` only when Telegram should use a custom public domain.
 - `WPLBJM_JWT_PROD` is the fallback token for production options and posting.
-- `WP_LOGIN_USERNAME` and `WP_LOGIN_PASSWORD` are optional fallbacks for
-  `/refresh_jwt` when credentials are not included in the command.
-- `WPLBJM_WORDPRESS_DOMAIN` is used by the GraphQL JWT mutation.
-- `AI_PROVIDER` defaults to `opencode`. Set it to `gemini` only when you want
-  to bypass OpenCode.
+- `WP_LOGIN_USERNAME` and `WP_LOGIN_PASSWORD` are required by `/refresh_jwt`.
+  They must come from the deployment environment and cannot be supplied in
+  Telegram messages.
+- `AI_PROVIDER` defaults to `gemini`. Set it to `opencode` only when you want
+  to bypass Gemini and use OpenCode direct-image models immediately.
 - `OPENCODE_MODEL_CHAIN` is a comma-separated fallback list in
-  `provider:model:endpoint_style` format. The default tries Zen MiMo V2.5,
-  then Go MiniMax M3, then Go MiMo V2.5. The list is shuffled for each flyer
-  unless `--model` is provided.
+  `provider:model:endpoint_style` format. The default is ordered by priority:
+  Zen `mimo-v2.5-free`, then Go `kimi-k2.5`, `kimi-k2.6`, `mimo-v2.5`,
+  `minimax-m3`, `qwen3.6-plus`, and `qwen3.7-plus`.
 - `OPENCODE_API_KEY` is the single OpenCode credential used for every OpenCode
   request, regardless of whether the model chain uses Zen or Go providers.
-- `GOOGLE_AI_STUDIO_KEY` powers `opencode-vision`. The app maps it to
-  `GOOGLE_API_KEY` at runtime when Google-specific env vars are not already
-  set.
-- `OPENCODE_VISION_MODE` controls the image preprocessor: `analyze` is the
-  default, with `ocr` and `describe` available for troubleshooting.
-- `ALLOW_DIRECT_IMAGE_FALLBACK=1` lets OpenCode receive the image directly
-  when `opencode-vision` is rate-limited or unavailable. Set it to `0` to
-  require the preprocessor.
-- `ALLOW_GEMINI_FALLBACK=1` allows Gemini as the last fallback after all
-  OpenCode attempts fail.
-- `GOOGLE_AI_STUDIO_KEY` is also used when Gemini fallback or
-  `AI_PROVIDER=gemini` is enabled.
+- `GOOGLE_AI_STUDIO_KEY` powers Gemini direct-image extraction.
 - `GEMINI_MODEL` may override the Gemini default `gemini-2.5-flash`.
 - `EXA_API_KEY` enables optional web search enrichment for website/address/map
   validation. It is not required.
 - `EXA_SEARCH_TYPE` defaults to `auto`; use `fast` if latency matters more than
   search quality.
 - `DISABLE_WEB_ENRICHMENT=1` disables Exa even when `EXA_API_KEY` is present.
-- `opencode-vision` turns the flyer image into text first, so OpenCode Zen/Go
-  models receive text-only requests instead of raw image payloads.
+- Gemini and OpenCode extraction both use direct image input. QR and optional
+  Exa context are added as supplemental text when available.
 
 ## Skill Loading
 
@@ -299,8 +267,7 @@ curl "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo"
 /help
 /status
 /set_domain https://wp.example.com
-/refresh_jwt <wordpress_username> <wordpress_password>
-/set_jwt <wordpress_username> <wordpress_password>
+/refresh_jwt
 /set_skill (caption on an attached SKILL.md document)
 /reset_skill
 /add_users @username1 @username2
@@ -341,12 +308,15 @@ The GraphQL field returns `ok`, while the actual token is extracted from the
 `Set-Cookie: jwt-token=...` response header. The refreshed token is stored in
 process memory and overrides env JWT values until the service restarts.
 
-Avoid sending credentials in Telegram when possible. Configure
-`WP_LOGIN_USERNAME` and `WP_LOGIN_PASSWORD`, then send:
+Configure `WP_LOGIN_USERNAME` and `WP_LOGIN_PASSWORD` in the deployment
+environment, then send:
 
 ```text
 /refresh_jwt
 ```
+
+The command rejects all arguments so WordPress credentials cannot be supplied
+or exposed through Telegram chat history.
 
 ### Upload a Skill
 
@@ -372,7 +342,7 @@ and restore the env/repository fallback.
 
   The instruction can guide emphasis and extraction, but cannot override the
   WordPress payload contract, visible-evidence rules, or taxonomy restrictions.
-- Images may be sent as Telegram photos or image documents.
+- Images sent as Telegram photos.
 - When sending a Telegram media group/album, put `/post_prod` and any custom
   instruction on one item. The bot waits briefly for the album and applies the
   directive to every image in the group.
@@ -433,8 +403,6 @@ remain the fallback source of truth.
 
 ## Security
 
-- Keep all JWTs, API keys, bot tokens, and WordPress passwords in Render secrets.
-- Never commit `.env`.
 - Use a long random `TELEGRAM_WEBHOOK_SECRET`.
 - The primary Telegram owner is restricted by exact `TELEGRAM_USERNAME`.
 - Only the primary owner can manage temporary additional users.

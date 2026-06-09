@@ -12,6 +12,12 @@ from automation.telegram.handlers import handle_telegram_update
 from automation.telegram.webhook import register_telegram_webhook, telegram_webhook_url, public_base_url
 
 
+def webhook_error_payload(error: Exception) -> dict[str, Any]:
+    if isinstance(error, AgentError):
+        return {"ok": False, "error": "request_failed"}
+    return {"ok": False, "error": "internal_error"}
+
+
 class TelegramWebhookHandler(http.server.BaseHTTPRequestHandler):
     server_version = "WPLokerBJMAgent/1.0"
 
@@ -45,7 +51,12 @@ class TelegramWebhookHandler(http.server.BaseHTTPRequestHandler):
             handle_telegram_update(update)
             self.send_json(200, {"ok": True})
         except Exception as error:
-            self.send_json(200, {"ok": False, "error": str(error)})
+            print(
+                f"Telegram webhook request failed: {error.__class__.__name__}",
+                file=sys.stderr,
+                flush=True,
+            )
+            self.send_json(200, webhook_error_payload(error))
 
     def log_message(self, format: str, *args: Any) -> None:
         return

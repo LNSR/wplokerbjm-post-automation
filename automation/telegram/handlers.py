@@ -94,6 +94,7 @@ def effective_post_directive(
 
 def format_preview(result: BuildResult) -> str:
     payload = result.payload.model_dump(exclude_none=True)
+    model_info = result.model_name or "unknown"
     wordpress = result.wordpress
     if wordpress:
         lines = [
@@ -101,6 +102,7 @@ def format_preview(result: BuildResult) -> str:
             f"HTTP: {result.http_status}",
             f"ID: {wordpress.get('id', wordpress.get('existing_id', '-'))}",
             f"Edit: {wordpress.get('edit_url', '-')}",
+            f"Model: {model_info}",
         ]
         if result.warnings:
             lines.append("Warnings: " + "; ".join(result.warnings))
@@ -110,6 +112,7 @@ def format_preview(result: BuildResult) -> str:
     lines = [
         "Mock payload preview only. Not posted.",
         "Send the same flyer with /post_prod to create a production draft.",
+        f"Model: {model_info}",
         "",
         payload_json,
     ]
@@ -133,7 +136,7 @@ def handle_command(
         return (
             "WPLokerBJM bot commands:\n"
             "/set_domain https://wp.example.com\n"
-            "/refresh_jwt <wp_username> <wp_password>\n"
+            "/refresh_jwt\n"
             "/set_skill as the caption of an attached SKILL.md file\n"
             "/reset_skill to restore the configured/repository fallback\n"
             "/add_users @username1 @username2 (owner only)\n"
@@ -151,16 +154,14 @@ def handle_command(
         BOT_SETTINGS.wordpress_base_url = rest.rstrip("/")
         return "WordPress domain URL updated for this running bot instance."
 
-    if command in {"/refresh_jwt", "/set_jwt"}:
-        username, _, password = rest.partition(" ")
-        username = username or os.getenv("WP_LOGIN_USERNAME", "")
-        password = password or os.getenv("WP_LOGIN_PASSWORD", "")
-        if not username or not password:
+    if command == "/refresh_jwt":
+        if rest:
             return (
-                "Usage: /refresh_jwt <wp_username> <wp_password>, "
-                "or set WP_LOGIN_USERNAME/WP_LOGIN_PASSWORD env."
+                "/refresh_jwt does not accept credentials or other "
+                "arguments. Configure WP_LOGIN_USERNAME and "
+                "WP_LOGIN_PASSWORD in the deployment environment."
             )
-        BOT_SETTINGS.jwt = request_graphql_jwt(username, password)
+        BOT_SETTINGS.jwt = request_graphql_jwt()
         return (
             "JWT refreshed from GraphQL and stored for this running "
             "bot instance."
@@ -237,7 +238,6 @@ def handle_command(
         opencode_status = probe_opencode()
         wordpress_domain = (
             BOT_SETTINGS.wordpress_base_url
-            or os.getenv("WPLBJM_WORDPRESS_DOMAIN")
             or os.getenv("WPLBJM_API_BASE_URL_PROD")
             or "fallback missing"
         )
@@ -276,8 +276,8 @@ def process_flyer_message(
 
     image_path = download_telegram_file(file_id)
     try:
-        # opencode-vision uses process-global provider state and is not safe
-        # to run concurrently from webhook and media-group threads.
+        # Keep flyer extraction serialized so webhook and media-group threads
+        # do not race through the same provider quota window.
         with _FLYER_PROCESSING_LOCK:
             result = build_result(
                 image_path,

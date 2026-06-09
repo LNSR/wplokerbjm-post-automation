@@ -45,7 +45,6 @@ def test_allowlist_includes_all_runtime_env_vars() -> None:
         "PUBLIC_BASE_URL",
         "TELEGRAM_MEDIA_GROUP_DELAY_SECONDS",
         "TELEGRAM_BULK_COMMAND_TTL_SECONDS",
-        "WPLBJM_WORDPRESS_DOMAIN",
     })
     missing = required - ALLOWLIST
     assert not missing, f"ALLOWLIST missing vars: {missing}"

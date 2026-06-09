@@ -26,7 +26,7 @@ def test_check_config_cli_succeeds(
     output = json.loads(capsys.readouterr().out)
     assert exit_code == 0
     assert output["ok"] is True
-    assert output["ai_provider"] == "opencode"
+    assert output["ai_provider"] == "gemini"
     assert output["public_base_url"] == "https://bot.example.test"
 
 
@@ -65,9 +65,10 @@ def test_build_result_preview_does_not_post(
     monkeypatch.setattr(
         main_module,
         "extract_payload_from_image",
-        lambda image_path, options, model=None, custom_instruction=None: {
-            "title": "Admin | Example"
-        },
+        lambda image_path, options, model=None, custom_instruction=None: (
+            {"title": "Admin | Example"},
+            "gemini:gemini-2.5-flash",
+        ),
     )
     monkeypatch.setattr(
         main_module,
@@ -108,9 +109,10 @@ def test_build_result_post_calls_wordpress_once(
     monkeypatch.setattr(
         main_module,
         "extract_payload_from_image",
-        lambda image_path, options, model=None, custom_instruction=None: {
-            "title": "Admin | Example"
-        },
+        lambda image_path, options, model=None, custom_instruction=None: (
+            {"title": "Admin | Example"},
+            "gemini:gemini-2.5-flash",
+        ),
     )
     monkeypatch.setattr(
         main_module,
@@ -164,9 +166,9 @@ def test_build_result_forwards_custom_instruction(
         *,
         model: str | None,
         custom_instruction: str | None,
-    ) -> dict[str, str]:
+    ) -> tuple[dict[str, str], str]:
         captured.append(custom_instruction)
-        return {"title": "Admin | Example"}
+        return {"title": "Admin | Example"}, "gemini:gemini-2.5-flash"
 
     monkeypatch.setattr(
         main_module,

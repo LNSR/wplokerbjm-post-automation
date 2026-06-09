@@ -4,11 +4,14 @@ import sys
 from email.message import Message
 from pathlib import Path
 
+import pytest
+
 from automation.ai.qr import decode_qr_codes, qr_context_text
+from automation.models import AgentError
 from automation.skills import load_skill_markdown
 from automation.telegram.webhook import public_base_url, telegram_webhook_url
 from automation.web.exa import exa_context_text, parse_exa_result
-from automation.wordpress.auth import jwt_from_headers
+from automation.wordpress.auth import jwt_from_headers, request_graphql_jwt
 
 
 def test_qr_decoder_fails_open_without_optional_modules(
@@ -49,6 +52,19 @@ def test_jwt_from_headers_extracts_cookie() -> None:
     headers.add_header("Set-Cookie", "jwt-token=aaa.bbb.ccc; Path=/; HttpOnly")
 
     assert jwt_from_headers(headers) == "aaa.bbb.ccc"
+
+
+def test_jwt_refresh_requires_deployment_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("WP_LOGIN_USERNAME", raising=False)
+    monkeypatch.delenv("WP_LOGIN_PASSWORD", raising=False)
+
+    with pytest.raises(
+        AgentError,
+        match="Missing required environment variable: WP_LOGIN_USERNAME",
+    ):
+        request_graphql_jwt()
 
 
 def test_public_base_url_uses_render_hostname(monkeypatch) -> None:

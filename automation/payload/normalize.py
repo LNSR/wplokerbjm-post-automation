@@ -91,11 +91,17 @@ def normalize_social_media(value: Any, warnings: list[str]) -> list[dict[str, st
 
     clean_rows: list[dict[str, str]] = []
     for row in rows:
-        clean = {
-            str(key): str(item_value).strip()
-            for key, item_value in row.items()
-            if key in SOCIAL_MEDIA_KEYS and str(item_value).strip()
-        }
+        clean: dict[str, str] = {}
+        for key, item_value in row.items():
+            val = str(item_value).strip()
+            if key not in SOCIAL_MEDIA_KEYS or not val:
+                continue
+            if " " in val:
+                warnings.append(
+                    f"Omitted {key} with spaces — frontend cannot render as link"
+                )
+                continue
+            clean[key] = val
         skipped = sorted(set(map(str, row.keys())) - SOCIAL_MEDIA_KEYS)
         if skipped:
             warnings.append(f"Omitted unknown social_media keys: {', '.join(skipped)}")

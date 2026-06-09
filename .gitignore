@@ -9,7 +9,13 @@ __pycache__
 .env.*
 !.env.example
 .envrc
+.omo
 .direnv/
 session-*
 *.session
 cookies.txt
+!.agents/
+.agents/**
+!.agents/skills/
+!.agents/skills/job-copywriter/
+!.agents/skills/agent-postdraft/

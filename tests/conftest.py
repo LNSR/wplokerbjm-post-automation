@@ -9,7 +9,6 @@ from automation.config import BOT_SETTINGS
 
 ENV_KEYS = {
     "AI_PROVIDER",
-    "ALLOW_DIRECT_IMAGE_FALLBACK",
     "DISABLE_WEB_ENRICHMENT",
     "EXA_API_KEY",
     "EXA_SEARCH_TYPE",
@@ -27,7 +26,8 @@ ENV_KEYS = {
     "TELEGRAM_WEBHOOK_SECRET",
     "WPLBJM_API_BASE_URL_PROD",
     "WPLBJM_JWT_PROD",
-    "WPLBJM_WORDPRESS_DOMAIN",
+    "WP_LOGIN_PASSWORD",
+    "WP_LOGIN_USERNAME",
 }
 
 
@@ -48,15 +48,15 @@ def valid_env(tmp_path: Path) -> dict[str, str]:
     skill.write_text("# Test Skill\n", encoding="utf-8")
     return {
         "WPLBJM_API_BASE_URL_PROD": "https://wp.example.test",
-        "WPLBJM_WORDPRESS_DOMAIN": "https://wp.example.test",
         "WPLBJM_JWT_PROD": "eyJ0eXAiOiJKV1Qi.e30.signaturevalue",
         "TELEGRAM_USERNAME": "maulana_test",
         "TELEGRAM_BOT_TOKEN": "123456789:abcdefghijklmnopqrstuvwxyzABCDE",
         "TELEGRAM_WEBHOOK_SECRET": "valid_secret_12345",
         "PUBLIC_BASE_URL": "https://bot.example.test",
-        "AI_PROVIDER": "opencode",
-        "OPENCODE_MODEL_CHAIN": "zen:mimo-v2.5-free:chat,go:minimax-m3:messages",
+        "AI_PROVIDER": "gemini",
+        "OPENCODE_MODEL_CHAIN": "zen:mimo-v2.5-free:chat,go:kimi-k2.5:chat,go:minimax-m3:messages",
         "OPENCODE_API_KEY": "opencode-test-key-123456",
+        "GOOGLE_AI_STUDIO_KEY": "gemini-test-key-123456",
         "TELEGRAM_MEDIA_GROUP_DELAY_SECONDS": "2",
         "TELEGRAM_BULK_COMMAND_TTL_SECONDS": "90",
         "SKILL_MD_PATH": str(skill),

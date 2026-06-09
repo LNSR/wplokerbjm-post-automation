@@ -8,6 +8,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    SecretStr,
     StrictBool,
     StrictFloat,
     StrictInt,
@@ -45,9 +46,18 @@ def normalize_telegram_username(value: str) -> str:
     return normalized
 
 
+def reveal_secret(value: str | SecretStr) -> str:
+    if isinstance(value, SecretStr):
+        return value.get_secret_value()
+    return value
+
+
 class WordpressConfig(FrozenStrictModel):
     base_url: StrictStr
-    jwt: StrictStr
+    jwt: SecretStr
+
+    def jwt_value(self) -> str:
+        return self.jwt.get_secret_value()
 
 
 class OpenCodeAttempt(FrozenStrictModel):
@@ -83,15 +93,15 @@ class BotSettings(StrictModel):
 class RuntimeEnvironment(StrictModel):
     wordpress_base_url: StrictStr
     wordpress_domain: StrictStr | None = None
-    wordpress_jwt: StrictStr
+    wordpress_jwt: SecretStr
     telegram_username: StrictStr
-    telegram_bot_token: StrictStr
-    telegram_webhook_secret: StrictStr
+    telegram_bot_token: SecretStr
+    telegram_webhook_secret: SecretStr
     public_base_url: StrictStr | None = None
-    ai_provider: Literal["opencode", "gemini"] = "opencode"
+    ai_provider: Literal["opencode", "gemini"] = "gemini"
     opencode_model_chain: StrictStr
-    opencode_api_key: StrictStr | None = None
-    google_ai_studio_key: StrictStr | None = None
+    opencode_api_key: SecretStr | None = None
+    google_ai_studio_key: SecretStr | None = None
     skill_md_path: StrictStr | None = None
     media_group_delay_seconds: StrictFloat
     bulk_command_ttl_seconds: StrictFloat
@@ -110,9 +120,10 @@ class RuntimeEnvironment(StrictModel):
             raise ValueError("must be an absolute http(s) URL")
         return value.rstrip("/")
 
-    @field_validator("wordpress_jwt")
+    @field_validator("wordpress_jwt", mode="before")
     @classmethod
-    def validate_wordpress_jwt(cls, value: str) -> str:
+    def validate_wordpress_jwt(cls, value: str | SecretStr) -> str:
+        value = reveal_secret(value)
         if len(value) < 20 or value.count(".") != 2:
             raise ValueError("must look like a three-segment JWT")
         return value
@@ -122,16 +133,18 @@ class RuntimeEnvironment(StrictModel):
     def validate_telegram_username(cls, value: str) -> str:
         return normalize_telegram_username(value)
 
-    @field_validator("telegram_bot_token")
+    @field_validator("telegram_bot_token", mode="before")
     @classmethod
-    def validate_telegram_bot_token(cls, value: str) -> str:
+    def validate_telegram_bot_token(cls, value: str | SecretStr) -> str:
+        value = reveal_secret(value)
         if not re.fullmatch(r"\d{6,12}:[A-Za-z0-9_-]{30,64}", value):
             raise ValueError("must match Telegram's bot token format")
         return value
 
-    @field_validator("telegram_webhook_secret")
+    @field_validator("telegram_webhook_secret", mode="before")
     @classmethod
-    def validate_webhook_secret(cls, value: str) -> str:
+    def validate_webhook_secret(cls, value: str | SecretStr) -> str:
+        value = reveal_secret(value)
         if not 16 <= len(value) <= 256:
             raise ValueError("must contain between 16 and 256 characters")
         if not re.fullmatch(r"[A-Za-z0-9_-]+", value):
@@ -171,13 +184,13 @@ class RuntimeEnvironment(StrictModel):
     @model_validator(mode="after")
     def validate_ai_credentials(self) -> RuntimeEnvironment:
         if self.ai_provider == "gemini":
-            if not self.google_ai_studio_key:
+            if self.google_ai_studio_key is None:
                 raise ValueError(
                     "Gemini requires GOOGLE_AI_STUDIO_KEY",
                 )
             return self
 
-        if not self.opencode_api_key:
+        if self.opencode_api_key is None:
             raise ValueError(
                 "OpenCode requires OPENCODE_API_KEY",
             )
@@ -215,6 +228,7 @@ class BuildResult(StrictModel):
     mode: Literal["mock_preview", "post_prod"]
     payload: NormalizedPayload
     warnings: list[StrictStr] = Field(default_factory=list)
+    model_name: StrictStr | None = None
     http_status: StrictInt | None = None
     wordpress: dict[StrictStr, Any] | None = None
 

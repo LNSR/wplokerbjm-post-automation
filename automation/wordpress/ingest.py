@@ -16,7 +16,7 @@ from automation.wordpress.client import parse_json_response, request_json
 def ingest_options(config: WordpressConfig) -> dict[str, Any]:
     status, data = request_json(
         f"{config.base_url}/wp-json/wplokerbjm/v1/lowongan/ingest/options",
-        config.jwt,
+        config.jwt_value(),
     )
     if status != 200:
         code = data.get("code", "options_request_failed")
@@ -55,7 +55,7 @@ def post_draft(config: WordpressConfig, payload: NormalizedPayload, image_path: 
         method="POST",
         headers={
             "Accept": "application/json",
-            "Authorization": f"Bearer {config.jwt}",
+            "Authorization": f"Bearer {config.jwt_value()}",
             "Content-Type": f"multipart/form-data; boundary={boundary}",
             "Content-Length": str(len(body)),
         },

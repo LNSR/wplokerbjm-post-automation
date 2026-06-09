@@ -11,24 +11,17 @@ from urllib.request import Request, urlopen
 
 from automation.ai.gemini import extract_payload_with_gemini
 from automation.ai.opencode.client import (
-    opencode_chat_body,
     opencode_chat_image_body,
     opencode_endpoint,
     opencode_headers,
-    opencode_messages_body,
     opencode_messages_image_body,
     opencode_response_text,
 )
 from automation.ai.opencode.probe import opencode_attempts
-from automation.ai.opencode.vision import (
-    analyze_image_with_opencode_vision,
-    local_ocr_text,
-)
-from automation.ai.qr import qr_context_text
 from automation.ai.prompt import build_prompt
 from automation.config import opencode_api_key, opencode_key_label
 from automation.models import AgentError, OpenCodeAttempt
-from automation.payload.constants import ACCEPTED_PAYLOAD_FIELDS
+from automation.payload.constants import ACCEPTED_PAYLOAD_FIELDS, DEFAULT_GEMINI_MODEL
 from automation.wordpress.client import parse_json_response
 
 
@@ -79,144 +72,50 @@ def extract_payload_from_image(
     *,
     model: str | None = None,
     custom_instruction: str | None = None,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], str]:
+    """Return (payload, resolved_model_name).
+
+    resolved_model_name shows which direct-image provider/model actually
+    handled the extraction, e.g. ``"gemini:gemini-2.5-flash"`` or
+    ``"gemini:gemini-2.5-flash → opencode:zen/mimo-v2.5-free"`` when
+    the primary Gemini call fell back to OpenCode.
+    """
     if not image_path.is_file():
         raise AgentError(f"Image file not found: {image_path}")
 
-    if os.getenv("AI_PROVIDER", "opencode").lower() == "gemini":
-        return extract_payload_with_gemini(
-            image_path,
-            options,
-            model=model,
-            custom_instruction=custom_instruction,
-        )
-
     errors: list[str] = []
-    independent_ocr = local_ocr_text(image_path)
-    qr_context = qr_context_text(image_path)
-    evidence_text = "\n\n".join(
-        item for item in (independent_ocr, qr_context) if item
-    )
-    if independent_ocr:
+    gemini_model_name = model or os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL)
+    gemini_prefix: str | None = None
+
+    if os.getenv("AI_PROVIDER", "gemini").lower() != "opencode":
         try:
-            vision_text = analyze_image_with_opencode_vision(image_path)
+            return (
+                extract_payload_with_gemini(
+                    image_path,
+                    options,
+                    model=model,
+                    custom_instruction=custom_instruction,
+                ),
+                f"gemini:{gemini_model_name}",
+            )
         except AgentError as error:
-            errors.append(f"opencode-vision: {error}")
-            vision_text = None
-    else:
-        errors.append(
-            "opencode-vision text path skipped: independent local OCR "
-            "is unavailable",
-        )
-        vision_text = None
+            errors.append(f"gemini primary: {error}")
+            gemini_prefix = f"gemini:{gemini_model_name} → "
 
-    if vision_text:
-        attempts = opencode_attempts(model)
-        for attempt in attempts:
-            try:
-                return extract_payload_with_opencode(
-                    image_path,
-                    options,
-                    attempt,
-                    vision_text,
-                    evidence_text=evidence_text,
-                    custom_instruction=custom_instruction,
-                )
-            except AgentError as error:
-                errors.append(f"{attempt.provider}/{attempt.model}: {error}")
-
-    if os.getenv("ALLOW_DIRECT_IMAGE_FALLBACK", "1").lower() not in {"0", "false", "no"}:
-        for attempt in opencode_attempts(model):
-            try:
-                return extract_payload_with_opencode_direct_image(
-                    image_path,
-                    options,
-                    attempt,
-                    evidence_text=evidence_text or None,
-                    custom_instruction=custom_instruction,
-                )
-            except AgentError as error:
-                errors.append(f"{attempt.provider}/{attempt.model} direct image: {error}")
-
-    if os.getenv("ALLOW_GEMINI_FALLBACK", "").lower() in {"1", "true", "yes"}:
+    for attempt in opencode_attempts(model):
         try:
-            return extract_payload_with_gemini(
+            payload = extract_payload_with_opencode_direct_image(
                 image_path,
                 options,
-                model=None,
+                attempt,
                 custom_instruction=custom_instruction,
             )
+            resolved = f"{gemini_prefix or ''}opencode:{attempt.provider}/{attempt.model}"
+            return payload, resolved
         except AgentError as error:
-            errors.append(f"gemini fallback: {error}")
+            errors.append(f"{attempt.provider}/{attempt.model} direct image: {error}")
 
     raise AgentError("AI extraction failed for all providers: " + " | ".join(errors))
-
-
-def extract_payload_with_opencode(
-    image_path: Path,
-    options: dict[str, Any],
-    attempt: OpenCodeAttempt,
-    vision_text: str,
-    *,
-    evidence_text: str,
-    custom_instruction: str | None = None,
-) -> dict[str, Any]:
-    api_key = opencode_api_key(attempt.provider)
-    if not api_key:
-        raise AgentError(f"Missing API key for OpenCode {attempt.provider}: {opencode_key_label(attempt.provider)}.")
-
-    prompt = build_prompt(options, custom_instruction)
-    contract_error: AgentError | None = None
-    for repair_attempt in range(2):
-        if attempt.endpoint_style == "chat":
-            body = opencode_chat_body(
-                attempt.model,
-                prompt,
-                image_path,
-                vision_text,
-                contract_error=str(contract_error) if contract_error else None,
-            )
-        elif attempt.endpoint_style == "messages":
-            body = opencode_messages_body(
-                attempt.model,
-                prompt,
-                image_path,
-                vision_text,
-                contract_error=str(contract_error) if contract_error else None,
-            )
-        else:
-            raise AgentError(f"Unsupported endpoint style: {attempt.endpoint_style}")
-
-        request = Request(
-            opencode_endpoint(attempt.provider, attempt.endpoint_style),
-            data=json.dumps(body).encode("utf-8"),
-            method="POST",
-            headers=opencode_headers(api_key, attempt.endpoint_style),
-        )
-
-        try:
-            with urlopen(request, context=ssl._create_unverified_context(), timeout=120) as response:
-                data = parse_json_response(response.read().decode("utf-8", errors="replace"))
-        except HTTPError as error:
-            data = parse_json_response(error.read().decode("utf-8", errors="replace"))
-            message = data.get("error") or data.get("message") or data
-            raise AgentError(f"HTTP {error.code}: {message}") from error
-        except URLError as error:
-            raise AgentError(str(error.reason)) from error
-
-        text = opencode_response_text(data, attempt.endpoint_style)
-        if not text:
-            raise AgentError("empty response text")
-        payload = parse_model_json(text)
-        try:
-            validate_model_contract(payload)
-            validate_identity_evidence(payload, evidence_text)
-            sanitize_payload_against_evidence(payload, evidence_text)
-            return payload
-        except AgentError as error:
-            contract_error = error
-
-    raise contract_error or AgentError("model did not satisfy output contract")
 
 
 def extract_payload_with_opencode_direct_image(

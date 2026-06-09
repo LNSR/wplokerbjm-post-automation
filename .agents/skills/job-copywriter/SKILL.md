@@ -183,7 +183,7 @@ Use plain text terms. Multiple values may be comma-separated if needed.
 `pendidikan`
 
 - Education requirement.
-- Examples: `SMA/SMK`, `D3`, `S1`.
+- Must be an exact match from the available taxonomy options provided in the prompt. The allowed options are fetched live from the WordPress backend — you will see them listed in the system prompt.
 
 ### Typed Fields
 
@@ -411,7 +411,6 @@ Instagram:
 Rules:
 
 - Convert local Indonesian WhatsApp numbers starting with `0` to `62` in `wa.me`.
-- Do not use `wa.me` for ordinary phone numbers unless the source says WA/WhatsApp.
 - Do not create Google Maps links unless the source provides a valid maps link or the location is verified.
 - Avoid long raw URLs in visible text. Prefer labels like `Website Karir` or account names.
 

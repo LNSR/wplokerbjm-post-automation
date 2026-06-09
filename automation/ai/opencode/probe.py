@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import random
 import ssl
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -129,5 +128,4 @@ def opencode_attempts(model_override: str | None = None) -> list[OpenCodeAttempt
         if len(parts) != 3:
             raise AgentError("OPENCODE_MODEL_CHAIN items must use provider:model:endpoint_style")
         attempts.append(new_opencode_attempt(parts[0], parts[1], parts[2]))
-    random.shuffle(attempts)
     return attempts
