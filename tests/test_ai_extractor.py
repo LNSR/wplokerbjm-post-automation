@@ -44,7 +44,44 @@ def test_identity_evidence_rejects_wrong_company() -> None:
         )
 
 
-def test_extractor_uses_opencode_direct_image_when_requested(
+def test_extractor_runs_two_stage_pipeline(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    image = tmp_path / "flyer.jpg"
+    image.write_bytes(b"image")
+    seen_raw: dict[str, object] | None = None
+
+    def fake_raw(
+        image_path: Path,
+        options: dict[str, object],
+        *,
+        model: str | None = None,
+        custom_instruction: str | None = None,
+    ) -> tuple[dict[str, object], str]:
+        return {"title": "Sales to Sampit", "company": "Example"}, "opencode:go/kimi-k2.6"
+
+    def fake_copywriter(
+        raw_facts: dict[str, object],
+        options: dict[str, object],
+        *,
+        custom_instruction: str | None = None,
+    ) -> tuple[dict[str, str], str]:
+        nonlocal seen_raw
+        seen_raw = raw_facts
+        return {"title": "Sales to Sampit", "nama_perusahaan": "Example"}, "zen/mimo-v2.5-free"
+
+    monkeypatch.setattr(extractor, "extract_raw_facts_from_image", fake_raw)
+    monkeypatch.setattr(extractor, "format_payload_with_copywriter", fake_copywriter)
+
+    payload, resolved = extractor.extract_payload_from_image(image, {})
+
+    assert payload == {"title": "Sales to Sampit", "nama_perusahaan": "Example"}
+    assert resolved == "opencode:go/kimi-k2.6 → copywriter:zen/mimo-v2.5-free"
+    assert seen_raw == {"title": "Sales to Sampit", "company": "Example"}
+
+
+def test_raw_extractor_uses_opencode_direct_image_when_requested(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -79,11 +116,11 @@ def test_extractor_uses_opencode_direct_image_when_requested(
     )
     monkeypatch.setattr(
         extractor,
-        "extract_payload_with_opencode_direct_image",
+        "extract_facts_with_opencode_direct_image",
         fake_direct,
     )
 
-    payload, resolved = extractor.extract_payload_from_image(image, {})
+    payload, resolved = extractor.extract_raw_facts_from_image(image, {})
 
     assert payload == {"title": "Sales to Sampit"}
     assert resolved == "opencode:zen/vision-model"
@@ -101,7 +138,7 @@ def test_gemini_failure_falls_back_to_ordered_opencode_direct_image(
     monkeypatch.setenv("GEMINI_MODEL", "gemini-test")
     monkeypatch.setattr(
         extractor,
-        "extract_payload_with_gemini",
+        "extract_facts_with_gemini",
         lambda *args, **kwargs: (_ for _ in ()).throw(AgentError("rate limited")),
     )
     monkeypatch.setattr(
@@ -128,11 +165,11 @@ def test_gemini_failure_falls_back_to_ordered_opencode_direct_image(
 
     monkeypatch.setattr(
         extractor,
-        "extract_payload_with_opencode_direct_image",
+        "extract_facts_with_opencode_direct_image",
         fake_direct,
     )
 
-    payload, resolved = extractor.extract_payload_from_image(image, {})
+    payload, resolved = extractor.extract_raw_facts_from_image(image, {})
 
     assert payload == {"title": "Sales to Sampit"}
     assert resolved == "gemini:gemini-test → opencode:zen/mimo-v2.5-free"

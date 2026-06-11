@@ -109,6 +109,51 @@ def opencode_messages_image_body(
     }
 
 
+def opencode_chat_text_body(
+    model: str,
+    system_prompt: str,
+    user_text: str,
+    *,
+    contract_error: str | None = None,
+) -> dict[str, Any]:
+    content = user_text
+    if contract_error:
+        content += f"\n\nPrevious response failed validation: {contract_error}\nReturn corrected JSON only."
+    return {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": content},
+        ],
+        "temperature": 0,
+        "response_format": {"type": "json_object"},
+    }
+
+
+def opencode_messages_text_body(
+    model: str,
+    system_prompt: str,
+    user_text: str,
+    *,
+    contract_error: str | None = None,
+) -> dict[str, Any]:
+    content = user_text
+    if contract_error:
+        content += f"\n\nPrevious response failed validation: {contract_error}\nReturn corrected JSON only."
+    return {
+        "model": model,
+        "max_tokens": 4096,
+        "temperature": 0,
+        "system": system_prompt,
+        "messages": [
+            {
+                "role": "user",
+                "content": [{"type": "text", "text": content}],
+            }
+        ],
+    }
+
+
 def opencode_response_text(data: dict[str, Any], endpoint_style: str) -> str | None:
     if endpoint_style == "chat":
         choices = data.get("choices")

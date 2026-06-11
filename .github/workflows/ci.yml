@@ -45,7 +45,8 @@ jobs:
           PUBLIC_BASE_URL: https://wp.lokerbanjarmasin.my.id
           AI_PROVIDER: gemini
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
-          OPENCODE_MODEL_CHAIN: zen:mimo-v2.5-free:chat,go:kimi-k2.5:chat,go:kimi-k2.6:chat,go:mimo-v2.5:chat,go:minimax-m3:messages,go:qwen3.6-plus:messages,go:qwen3.7-plus:messages
+          OPENCODE_MODEL_CHAIN: go:kimi-k2.6:chat,go:kimi-k2.5:chat,go:mimo-v2.5:chat,go:minimax-m3:messages,go:qwen3.6-plus:messages,go:qwen3.7-plus:messages
+          OPENCODE_COPYWRITER_CHAIN: zen:mimo-v2.5-free:chat
           SKILL_MD_PATH: .agents/skills/agent-postdraft/SKILL.md
         run: uv run --frozen agent --check-config
 
@@ -95,7 +96,8 @@ jobs:
           GOOGLE_AI_STUDIO_KEY: ${{ secrets.GOOGLE_AI_STUDIO_KEY }}
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
           AI_PROVIDER: gemini
-          OPENCODE_MODEL_CHAIN: go:kimi-k2.6:chat,go:kimi-k2.5:chat,go:minimax-m3:messages,go:mimo-v2.5:chat,go:qwen3.6-plus:messages,go:qwen3.7-plus:messages,zen:mimo-v2.5-free:chat
+          OPENCODE_MODEL_CHAIN: go:kimi-k2.6:chat,go:kimi-k2.5:chat,go:mimo-v2.5:chat,go:minimax-m3:messages,go:qwen3.6-plus:messages,go:qwen3.7-plus:messages
+          OPENCODE_COPYWRITER_CHAIN: zen:mimo-v2.5-free:chat
           EXA_SEARCH_TYPE: auto
           DISABLE_WEB_ENRICHMENT: ""
           SKILL_MD_PATH: .agents/skills/agent-postdraft/SKILL.md

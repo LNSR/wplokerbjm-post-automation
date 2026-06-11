@@ -13,7 +13,7 @@ from automation.models import (
     RuntimeEnvironment,
     validation_error_summary,
 )
-from automation.payload.constants import DEFAULT_OPENCODE_CHAIN
+from automation.payload.constants import DEFAULT_COPYWRITER_CHAIN, DEFAULT_OPENCODE_CHAIN
 
 
 BOT_SETTINGS = BotSettings(
@@ -138,6 +138,10 @@ def validate_runtime_environment(
         "opencode_model_chain": env.get(
             "OPENCODE_MODEL_CHAIN",
             DEFAULT_OPENCODE_CHAIN,
+        ),
+        "opencode_copywriter_chain": env.get(
+            "OPENCODE_COPYWRITER_CHAIN",
+            DEFAULT_COPYWRITER_CHAIN,
         ),
         "opencode_api_key": env.get("OPENCODE_API_KEY") or None,
         "google_ai_studio_key": env.get("GOOGLE_AI_STUDIO_KEY") or None,

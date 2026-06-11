@@ -75,6 +75,7 @@ def test_validate_runtime_environment_requires_public_url(
         ("TELEGRAM_BOT_TOKEN", "bad-token", "telegram_bot_token"),
         ("TELEGRAM_WEBHOOK_SECRET", "too-short", "telegram_webhook_secret"),
         ("OPENCODE_MODEL_CHAIN", "zen:model:bad", "opencode_model_chain"),
+        ("OPENCODE_COPYWRITER_CHAIN", "zen:model:bad", "opencode_copywriter_chain"),
         ("TELEGRAM_BULK_COMMAND_TTL_SECONDS", "0", "bulk_command_ttl_seconds"),
     ],
 )
@@ -96,6 +97,15 @@ def test_validate_runtime_environment_requires_ai_key(
     valid_env.pop("GOOGLE_AI_STUDIO_KEY")
 
     with pytest.raises(AgentError, match="Gemini requires"):
+        validate_runtime_environment(environ=valid_env, root=Path.cwd())
+
+
+def test_validate_runtime_environment_requires_opencode_for_copywriter(
+    valid_env: dict[str, str],
+) -> None:
+    valid_env.pop("OPENCODE_API_KEY")
+
+    with pytest.raises(AgentError, match="OpenCode requires"):
         validate_runtime_environment(environ=valid_env, root=Path.cwd())
 
 

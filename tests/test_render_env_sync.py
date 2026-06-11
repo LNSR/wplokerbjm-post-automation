@@ -41,6 +41,7 @@ def test_allowlist_includes_all_runtime_env_vars() -> None:
         "OPENCODE_API_KEY",
         "AI_PROVIDER",
         "OPENCODE_MODEL_CHAIN",
+        "OPENCODE_COPYWRITER_CHAIN",
         "SKILL_MD_PATH",
         "PUBLIC_BASE_URL",
         "TELEGRAM_MEDIA_GROUP_DELAY_SECONDS",

@@ -5,7 +5,7 @@ WordPress `lowongan` drafts.
 
 The service:
 
-- Reads flyer images with Gemini, then OpenCode Go fallback.
+- Reads flyer images with Gemini, then OpenCode Go direct-image fallback.
 - Decodes QR codes deterministically before AI extraction and passes the
   decoded content into the model context.
 - Optionally enriches extraction context with Exa web search when `EXA_API_KEY`
@@ -29,26 +29,25 @@ flowchart TD
         D -- gemini --> E[QR Code Decoder]
         E --> F{EXA_API_KEY?}
         F -- yes --> G[Exa Web Search<br/>enrichment]
-        F -- no --> H[Gemini API]
+        F -- no --> H[Gemini Fact Agent]
         G --> H
         A -.->|Image| H
         E -.->|QR Context| H
     end
 
     subgraph opencode [OpenCode Path]
-        D -- opencode --> I[Local OCR + QR Decode]
-        I --> J[OpenCode Vision<br/>Image → Text]
-        J --> K[OpenCode LLM Chain<br/>Zen / Go with Skill Prompt]
-        I --> K
+        D -- opencode --> I[QR Code Decoder]
+        I --> J[OpenCode Go Fact Agent<br/>Direct Image]
     end
 
-    H --> L[Structured JSON]
-    K --> L
+    H --> L[Raw Visible Facts]
+    J --> L
 
-    L --> M[Skill Rules + Normalization]
-    M --> N[Build Multipart Form<br/>Payload + Original Flyer]
-    N -->|JWT Auth| O[WP REST Ingest]
-    O --> P[Draft Lowongan]
+    L --> M[OpenCode Zen Copywriter Agent]
+    M --> N[Deterministic Normalization]
+    N --> O[Build Multipart Form<br/>Payload + Original Flyer]
+    O -->|JWT Auth| P[WP REST Ingest]
+    P --> Q[Draft Lowongan]
 ```
 
 ## Code Layout
@@ -112,9 +111,11 @@ values under **Environment**.
 - `AI_PROVIDER` defaults to `gemini`. Set it to `opencode` only when you want
   to bypass Gemini and use OpenCode direct-image models immediately.
 - `OPENCODE_MODEL_CHAIN` is a comma-separated fallback list in
-  `provider:model:endpoint_style` format. The default is ordered by priority:
-  Zen `mimo-v2.5-free`, then Go `kimi-k2.5`, `kimi-k2.6`, `mimo-v2.5`,
+  `provider:model:endpoint_style` format for Agent 1 raw fact extraction. The
+  default is ordered by priority: Go `kimi-k2.6`, `kimi-k2.5`, `mimo-v2.5`,
   `minimax-m3`, `qwen3.6-plus`, and `qwen3.7-plus`.
+- `OPENCODE_COPYWRITER_CHAIN` is the Agent 2 formatter/copywriter chain. The
+  default is Zen `mimo-v2.5-free`.
 - `OPENCODE_API_KEY` is the single OpenCode credential used for every OpenCode
   request, regardless of whether the model chain uses Zen or Go providers.
 - `GOOGLE_AI_STUDIO_KEY` powers Gemini direct-image extraction.
@@ -124,8 +125,10 @@ values under **Environment**.
 - `EXA_SEARCH_TYPE` defaults to `auto`; use `fast` if latency matters more than
   search quality.
 - `DISABLE_WEB_ENRICHMENT=1` disables Exa even when `EXA_API_KEY` is present.
-- Gemini and OpenCode extraction both use direct image input. QR and optional
-  Exa context are added as supplemental text when available.
+- Gemini and OpenCode fact extraction both use direct image input. QR and
+  optional Exa context are added as supplemental text when available. The raw
+  facts are then passed to a text-only copywriter/formatter model before
+  deterministic payload normalization.
 
 ## Skill Loading
 

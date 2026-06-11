@@ -100,6 +100,7 @@ class RuntimeEnvironment(StrictModel):
     public_base_url: StrictStr | None = None
     ai_provider: Literal["opencode", "gemini"] = "gemini"
     opencode_model_chain: StrictStr
+    opencode_copywriter_chain: StrictStr
     opencode_api_key: SecretStr | None = None
     google_ai_studio_key: SecretStr | None = None
     skill_md_path: StrictStr | None = None
@@ -158,7 +159,7 @@ class RuntimeEnvironment(StrictModel):
             raise ValueError("must be greater than zero")
         return value
 
-    @field_validator("opencode_model_chain")
+    @field_validator("opencode_model_chain", "opencode_copywriter_chain")
     @classmethod
     def validate_model_chain(cls, value: str) -> str:
         items = [item.strip() for item in value.split(",") if item.strip()]
@@ -183,17 +184,17 @@ class RuntimeEnvironment(StrictModel):
 
     @model_validator(mode="after")
     def validate_ai_credentials(self) -> RuntimeEnvironment:
+        if self.opencode_api_key is None:
+            raise ValueError(
+                "OpenCode requires OPENCODE_API_KEY for copywriter formatting",
+            )
+
         if self.ai_provider == "gemini":
             if self.google_ai_studio_key is None:
                 raise ValueError(
                     "Gemini requires GOOGLE_AI_STUDIO_KEY",
                 )
             return self
-
-        if self.opencode_api_key is None:
-            raise ValueError(
-                "OpenCode requires OPENCODE_API_KEY",
-            )
         return self
 
 

@@ -25,6 +25,7 @@ ALLOWLIST = frozenset(
         # Inline config (non-sensitive, set in workflow env):
         "AI_PROVIDER",
         "OPENCODE_MODEL_CHAIN",
+        "OPENCODE_COPYWRITER_CHAIN",
         "EXA_SEARCH_TYPE",
         "DISABLE_WEB_ENRICHMENT",
         "SKILL_MD_PATH",
