@@ -57,3 +57,76 @@ class BulkCommandStore:
             self.remember(chat_id, directive)
             return directive
         return self.recall(chat_id)
+
+
+class ModelPreferenceStore:
+    """Stores per-chat model alias selection.
+
+    Persists until the bot restarts or the user changes it with
+    /set_model.  No TTL -- the selection is sticky across messages.
+    """
+
+    def __init__(self) -> None:
+        self._prefs: dict[str, str] = {}
+        self._lock = threading.Lock()
+
+    @staticmethod
+    def chat_key(chat_id: int | str) -> str:
+        return str(chat_id)
+
+    def set_model(self, chat_id: int | str, alias: str) -> None:
+        with self._lock:
+            self._prefs[self.chat_key(chat_id)] = alias
+
+    def get_model(self, chat_id: int | str) -> str | None:
+        with self._lock:
+            return self._prefs.get(self.chat_key(chat_id))
+
+    def clear_model(self, chat_id: int | str) -> None:
+        with self._lock:
+            self._prefs.pop(self.chat_key(chat_id), None)
+
+
+class ProcessedMessageStore:
+    """Remembers recently processed Telegram message IDs to skip webhook retries.
+
+    TTL starts when the message is *marked*, not created, so the second
+    webhook delivery has a generous window to be recognized as duplicate.
+    """
+
+    def __init__(
+        self,
+        *,
+        ttl_seconds: float,
+        monotonic: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._ttl_seconds = ttl_seconds
+        self._monotonic = monotonic
+        self._messages: dict[str, float] = {}
+        self._lock = threading.Lock()
+
+    @staticmethod
+    def message_key(chat_id: int | str, message_id: int) -> str:
+        return f"{chat_id}:{message_id}"
+
+    def mark_processed(self, chat_id: int | str, message_id: int) -> None:
+        """Mark a message as processed.
+
+        Subsequent ``is_processed`` calls return ``True`` until the TTL
+        expires.
+        """
+        key = self.message_key(chat_id, message_id)
+        with self._lock:
+            self._messages[key] = self._monotonic() + self._ttl_seconds
+
+    def is_processed(self, chat_id: int | str, message_id: int) -> bool:
+        """Return ``True`` if the message was marked within the TTL window."""
+        key = self.message_key(chat_id, message_id)
+        with self._lock:
+            expires_at = self._messages.get(key)
+            if expires_at is None:
+                return False
+            if expires_at < self._monotonic():
+                self._messages.pop(key, None)
+                return False
+            return True

@@ -30,7 +30,8 @@ from automation.telegram.files import (
     download_telegram_file,
     first_photo_file_id,
 )
-from automation.telegram.state import BulkCommandStore
+from automation.payload.constants import AVAILABLE_GEMINI_MODELS
+from automation.telegram.state import BulkCommandStore, ModelPreferenceStore, ProcessedMessageStore
 from automation.wordpress.auth import request_graphql_jwt
 
 
@@ -44,6 +45,8 @@ _MEDIA_GROUP_LOCK = threading.Lock()
 _MEDIA_GROUPS: dict[str, TelegramMediaGroupState] = {}
 _MEDIA_GROUP_TIMERS: dict[str, threading.Timer] = {}
 _BULK_COMMANDS = BulkCommandStore(ttl_seconds=BULK_COMMAND_TTL_SECONDS)
+_PROCESSED_MESSAGES = ProcessedMessageStore(ttl_seconds=120.0)
+_MODEL_PREFERENCES = ModelPreferenceStore()
 _FLYER_PROCESSING_LOCK = threading.Lock()
 MAX_CUSTOM_INSTRUCTION_LENGTH = 2000
 
@@ -133,6 +136,10 @@ def handle_command(
     rest = rest.strip()
 
     if command in {"/start", "/help"}:
+        models_list = ", ".join(
+            f"{alias}={name}"
+            for alias, name in AVAILABLE_GEMINI_MODELS.items()
+        )
         return (
             "WPLokerBJM bot commands:\n"
             "/set_domain https://wp.example.com\n"
@@ -142,7 +149,10 @@ def handle_command(
             "/add_users @username1 @username2 (owner only)\n"
             "/rm_users @username1 [@username2] (owner only)\n"
             "/reset_users (owner only)\n"
+            "/set_model [alias]  — choose AI model; omit to list\n"
+            "/current_model\n"
             "/status\n"
+            f"Available models: {models_list}\n"
             "Send a flyer image to preview a mock payload.\n"
             "Use /post_prod [custom instruction] as an image caption, "
             "or send it first and upload images within 90 seconds."
@@ -233,6 +243,52 @@ def handle_command(
         BOT_SETTINGS.extra_telegram_usernames = []
         return "Runtime extra Telegram users cleared."
 
+    if command == "/set_model":
+        if not rest:
+            lines = [
+                "Available AI models (use /set_model <alias>):",
+            ]
+            for alias, name in AVAILABLE_GEMINI_MODELS.items():
+                marker = " ← active" if _MODEL_PREFERENCES.get_model(chat_id) == alias else ""
+                lines.append(f"  {alias}  → {name}{marker}")
+            lines.append("  default  → environment / fallback")
+            return "\n".join(lines)
+
+        if rest == "default":
+            _MODEL_PREFERENCES.clear_model(chat_id)
+            return (
+                "Model preference cleared. "
+                "The environment / fallback default will be used."
+            )
+
+        if rest not in AVAILABLE_GEMINI_MODELS:
+            return (
+                f"Unknown model alias \"{rest}\". "
+                f"Use /set_model to list available models."
+            )
+
+        _MODEL_PREFERENCES.set_model(chat_id, rest)
+        return (
+            f"AI model set to \"{rest}\" "
+            f"({AVAILABLE_GEMINI_MODELS[rest]}).\n"
+            "The change applies to the next flyer you send."
+        )
+
+    if command == "/current_model":
+        alias = _MODEL_PREFERENCES.get_model(chat_id)
+        if alias:
+            return (
+                f"Active AI model: \"{alias}\" "
+                f"({AVAILABLE_GEMINI_MODELS[alias]}).\n"
+                "Send /set_model to change or choose a different model."
+            )
+        env_model = os.getenv("GEMINI_MODEL") or "gemini-2.5-flash (default)"
+        return (
+            f"No per-chat preference set. "
+            f"Using environment / fallback: {env_model}.\n"
+            "Send /set_model to choose a model."
+        )
+
     if command == "/status":
         _, skill_source = load_skill_markdown()
         opencode_status = probe_opencode()
@@ -249,11 +305,18 @@ def handle_command(
             f"@{username}"
             for username in sorted(allowed_telegram_usernames())
         )
+        model_alias = _MODEL_PREFERENCES.get_model(chat_id)
+        model_line = (
+            f"AI model: \"{model_alias}\" ({AVAILABLE_GEMINI_MODELS[model_alias]})"
+            if model_alias
+            else "AI model: environment / fallback"
+        )
         return (
             "Current runtime settings:\n"
             f"WordPress domain: {wordpress_domain}\n"
             f"JWT: {'runtime set' if BOT_SETTINGS.jwt else 'env fallback'}\n"
             f"Skill: {skill_source}\n"
+            + model_line + "\n"
             f"Allowed Telegram users: {allowed_users}\n"
             f"OpenCode: {opencode_json}"
         )
@@ -274,15 +337,32 @@ def process_flyer_message(
         )
         return
 
+    message_id = message.get("message_id")
+
     image_path = download_telegram_file(file_id)
     try:
         # Keep flyer extraction serialized so webhook and media-group threads
         # do not race through the same provider quota window.
         with _FLYER_PROCESSING_LOCK:
+            # Double-check: Telegram webhook may have retried this same
+            # update while we were waiting for the lock.  Skip silently
+            # when another thread already handled it.
+            if message_id and _PROCESSED_MESSAGES.is_processed(chat_id, message_id):
+                return
+
+            if message_id:
+                _PROCESSED_MESSAGES.mark_processed(chat_id, message_id)
+
+            model_alias = _MODEL_PREFERENCES.get_model(chat_id)
+            model_name = (
+                AVAILABLE_GEMINI_MODELS.get(model_alias)
+                if model_alias
+                else None
+            )
             result = build_result(
                 image_path,
                 post=directive is not None,
-                model=None,
+                model=model_name,
                 custom_instruction=(
                     directive.instruction if directive is not None else None
                 ),

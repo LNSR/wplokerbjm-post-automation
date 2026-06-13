@@ -3,6 +3,11 @@ from __future__ import annotations
 
 TITLE_SUFFIX = " | AI posted draft"
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
+AVAILABLE_GEMINI_MODELS: dict[str, str] = {
+    "flash": "gemini-2.5-flash",
+    "flash-lite": "gemini-2.5-flash-lite",
+    "gemini-3.5": "gemini-3.5",
+}
 DEFAULT_OPENCODE_CHAIN = (
     "go:kimi-k2.6:chat,"
     "go:kimi-k2.5:chat,"

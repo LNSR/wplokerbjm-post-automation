@@ -276,6 +276,8 @@ curl "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo"
 /add_users @username1 @username2
 /rm_users @username1 [@username2]
 /reset_users
+/set_model [alias]       — list / choose AI model
+/current_model           — show active model
 ```
 
 ### Runtime Telegram Access
@@ -320,6 +322,44 @@ environment, then send:
 
 The command rejects all arguments so WordPress credentials cannot be supplied
 or exposed through Telegram chat history.
+
+### Choose an AI Model
+
+The default Gemini model is `gemini-2.5-flash`. You can switch to another model
+at runtime without redeploying:
+
+```text
+/set_model flash-lite
+```
+
+List available models and see which one is active for your chat:
+
+```text
+/set_model
+```
+
+Show the current model without changing it:
+
+```text
+/current_model
+```
+
+Available aliases and their corresponding API model names:
+
+| Alias | Gemini Model |
+|-------|-------------|
+| `flash` | `gemini-2.5-flash` |
+| `flash-lite` | `gemini-2.5-flash-lite` |
+| `gemini-3.5` | `gemini-3.5` |
+
+Reset to the environment default (`GEMINI_MODEL` env var or `gemini-2.5-flash`):
+
+```text
+/set_model default
+```
+
+The model preference is stored per-chat in process memory. It persists for the
+life of the bot process and resets when the service restarts or redeploys.
 
 ### Upload a Skill
 
