@@ -65,7 +65,7 @@ def test_build_result_preview_does_not_post(
     monkeypatch.setattr(
         main_module,
         "extract_payload_from_image",
-        lambda image_path, options, model=None, custom_instruction=None: (
+        lambda image_path, options, model=None, custom_instruction=None, **kwargs: (
             {"title": "Admin | Example"},
             "gemini:gemini-2.5-flash",
         ),
@@ -109,7 +109,7 @@ def test_build_result_post_calls_wordpress_once(
     monkeypatch.setattr(
         main_module,
         "extract_payload_from_image",
-        lambda image_path, options, model=None, custom_instruction=None: (
+        lambda image_path, options, model=None, custom_instruction=None, **kwargs: (
             {"title": "Admin | Example"},
             "gemini:gemini-2.5-flash",
         ),
@@ -166,6 +166,7 @@ def test_build_result_forwards_custom_instruction(
         *,
         model: str | None,
         custom_instruction: str | None,
+        **kwargs: object,
     ) -> tuple[dict[str, str], str]:
         captured.append(custom_instruction)
         return {"title": "Admin | Example"}, "gemini:gemini-2.5-flash"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from enum import Enum
 from typing import Any, Literal
 from urllib.parse import urlparse
 
@@ -249,8 +250,26 @@ class OpenCodeProbeResult(StrictModel):
     chain: list[OpenCodeAttempt]
 
 
+class Command(Enum):
+    START = "/start"
+    HELP = "/help"
+    SET_DOMAIN = "/set_domain"
+    REFRESH_JWT = "/refresh_jwt"
+    SET_SKILL = "/set_skill"
+    RESET_SKILL = "/reset_skill"
+    ADD_USERS = "/add_users"
+    RM_USERS = "/rm_users"
+    RESET_USERS = "/reset_users"
+    SET_MODEL = "/set_model"
+    CURRENT_MODEL = "/current_model"
+    SET_FALLBACK_MODEL = "/set_fallback_model"
+    CURRENT_FALLBACK_MODEL = "/current_fallback_model"
+    STATUS = "/status"
+    POST_PROD = "/post_prod"
+
+
 class TelegramPostDirective(FrozenStrictModel):
-    command: Literal["/post_prod"] = "/post_prod"
+    command: Command = Command.POST_PROD
     instruction: StrictStr | None = None
 
 

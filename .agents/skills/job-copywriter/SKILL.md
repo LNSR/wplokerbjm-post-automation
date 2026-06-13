@@ -227,7 +227,7 @@ Typed fields must contain raw machine-friendly values.
   - `2` = Urgent 
   - `3` = Pinned
 - Default to `0`.
-  - When less than 14 days set to `2` unless the source says otherwise.
+  - When less than 14 days left set to `2` unless the source says otherwise.
   
 
 ### WYSIWYG Fields

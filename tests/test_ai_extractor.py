@@ -58,6 +58,7 @@ def test_extractor_runs_two_stage_pipeline(
         *,
         model: str | None = None,
         custom_instruction: str | None = None,
+        **kwargs: object,
     ) -> tuple[dict[str, object], str]:
         return {"title": "Sales to Sampit", "company": "Example"}, "opencode:go/kimi-k2.6"
 
@@ -106,7 +107,7 @@ def test_raw_extractor_uses_opencode_direct_image_when_requested(
     monkeypatch.setattr(
         extractor,
         "opencode_attempts",
-        lambda model=None: [
+        lambda model=None, **kwargs: [
             OpenCodeAttempt(
                 provider="zen",
                 model="vision-model",
@@ -144,7 +145,7 @@ def test_gemini_failure_falls_back_to_ordered_opencode_direct_image(
     monkeypatch.setattr(
         extractor,
         "opencode_attempts",
-        lambda model=None: [
+        lambda model=None, **kwargs: [
             OpenCodeAttempt(
                 provider="zen",
                 model="mimo-v2.5-free",

@@ -6,7 +6,7 @@ DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 AVAILABLE_GEMINI_MODELS: dict[str, str] = {
     "flash": "gemini-2.5-flash",
     "flash-lite": "gemini-2.5-flash-lite",
-    "gemini-3.5": "gemini-3.5",
+    "gemini-3.5": "gemini-3.5-flash",
 }
 DEFAULT_OPENCODE_CHAIN = (
     "go:kimi-k2.6:chat,"

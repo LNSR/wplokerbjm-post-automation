@@ -74,6 +74,7 @@ def extract_payload_from_image(
     *,
     model: str | None = None,
     custom_instruction: str | None = None,
+    fallback_chain: str | None = None,
 ) -> tuple[dict[str, Any], str]:
     """Return (payload, resolved_model_name).
 
@@ -89,6 +90,7 @@ def extract_payload_from_image(
         options,
         model=model,
         custom_instruction=custom_instruction,
+        fallback_chain=fallback_chain,
     )
     payload, copywriter_model = format_payload_with_copywriter(
         raw_facts,
@@ -104,6 +106,7 @@ def extract_raw_facts_from_image(
     *,
     model: str | None = None,
     custom_instruction: str | None = None,
+    fallback_chain: str | None = None,
 ) -> tuple[dict[str, Any], str]:
     errors: list[str] = []
     gemini_model_name = model or os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL)
@@ -124,7 +127,7 @@ def extract_raw_facts_from_image(
             errors.append(f"gemini facts primary: {error}")
             gemini_prefix = f"gemini:{gemini_model_name} → "
 
-    for attempt in opencode_attempts(model):
+    for attempt in opencode_attempts(model, chain_override=fallback_chain):
         try:
             raw_facts = extract_facts_with_opencode_direct_image(
                 image_path,

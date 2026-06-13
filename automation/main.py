@@ -21,6 +21,7 @@ def build_result(
     post: bool,
     model: str | None,
     custom_instruction: str | None = None,
+    fallback_chain: str | None = None,
 ) -> BuildResult:
     load_environment()
     config = wordpress_config()
@@ -30,6 +31,7 @@ def build_result(
         options,
         model=model,
         custom_instruction=custom_instruction,
+        fallback_chain=fallback_chain,
     )
     payload, warnings = normalize_payload(
         extracted,

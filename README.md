@@ -278,6 +278,8 @@ curl "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo"
 /reset_users
 /set_model [alias]       — list / choose AI model
 /current_model           — show active model
+/set_fallback_model      - list fallback models to choose
+/current_fallback_model  - show active fallback model
 ```
 
 ### Runtime Telegram Access
@@ -350,7 +352,7 @@ Available aliases and their corresponding API model names:
 |-------|-------------|
 | `flash` | `gemini-2.5-flash` |
 | `flash-lite` | `gemini-2.5-flash-lite` |
-| `gemini-3.5` | `gemini-3.5` |
+| `gemini-3.5` | `gemini-3.5-flash` |
 
 Reset to the environment default (`GEMINI_MODEL` env var or `gemini-2.5-flash`):
 

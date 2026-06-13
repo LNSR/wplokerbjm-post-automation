@@ -107,7 +107,11 @@ def probe_opencode() -> OpenCodeProbeResult:
     )
 
 
-def opencode_attempts(model_override: str | None = None) -> list[OpenCodeAttempt]:
+def opencode_attempts(
+    model_override: str | None = None,
+    *,
+    chain_override: str | None = None,
+) -> list[OpenCodeAttempt]:
     if model_override:
         parts = model_override.split(":")
         if len(parts) == 1:
@@ -118,7 +122,7 @@ def opencode_attempts(model_override: str | None = None) -> list[OpenCodeAttempt
             return [new_opencode_attempt(parts[0], parts[1], parts[2])]
         raise AgentError("--model must be model, provider:model, or provider:model:endpoint_style")
 
-    chain = os.getenv("OPENCODE_MODEL_CHAIN", DEFAULT_OPENCODE_CHAIN)
+    chain = chain_override or os.getenv("OPENCODE_MODEL_CHAIN", DEFAULT_OPENCODE_CHAIN)
     attempts: list[OpenCodeAttempt] = []
     for raw_item in chain.split(","):
         item = raw_item.strip()

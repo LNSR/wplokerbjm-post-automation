@@ -59,6 +59,38 @@ class BulkCommandStore:
         return self.recall(chat_id)
 
 
+class FallbackChainStore:
+    """Stores per-chat OpenCode fallback chain override.
+
+    The chain is a comma-separated string of
+    ``provider:model:endpoint_style`` items, e.g.
+    ``"go:kimi-k2.6:chat,go:qwen3.7-plus:messages"``.
+
+    Persists until the bot restarts or the user clears it with
+    ``/set_fallback_model default``.
+    """
+
+    def __init__(self) -> None:
+        self._chains: dict[str, str] = {}
+        self._lock = threading.Lock()
+
+    @staticmethod
+    def chat_key(chat_id: int | str) -> str:
+        return str(chat_id)
+
+    def set_chain(self, chat_id: int | str, chain: str) -> None:
+        with self._lock:
+            self._chains[self.chat_key(chat_id)] = chain
+
+    def get_chain(self, chat_id: int | str) -> str | None:
+        with self._lock:
+            return self._chains.get(self.chat_key(chat_id))
+
+    def clear_chain(self, chat_id: int | str) -> None:
+        with self._lock:
+            self._chains.pop(self.chat_key(chat_id), None)
+
+
 class ModelPreferenceStore:
     """Stores per-chat model alias selection.
 

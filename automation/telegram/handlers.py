@@ -13,6 +13,7 @@ from automation.main import build_result
 from automation.models import (
     AgentError,
     BuildResult,
+    Command,
     TelegramMediaGroupState,
     TelegramPostDirective,
     normalize_telegram_username,
@@ -31,7 +32,12 @@ from automation.telegram.files import (
     first_photo_file_id,
 )
 from automation.payload.constants import AVAILABLE_GEMINI_MODELS
-from automation.telegram.state import BulkCommandStore, ModelPreferenceStore, ProcessedMessageStore
+from automation.telegram.state import (
+    BulkCommandStore,
+    FallbackChainStore,
+    ModelPreferenceStore,
+    ProcessedMessageStore,
+)
 from automation.wordpress.auth import request_graphql_jwt
 
 
@@ -47,21 +53,26 @@ _MEDIA_GROUP_TIMERS: dict[str, threading.Timer] = {}
 _BULK_COMMANDS = BulkCommandStore(ttl_seconds=BULK_COMMAND_TTL_SECONDS)
 _PROCESSED_MESSAGES = ProcessedMessageStore(ttl_seconds=120.0)
 _MODEL_PREFERENCES = ModelPreferenceStore()
+_FALLBACK_CHAINS = FallbackChainStore()
 _FLYER_PROCESSING_LOCK = threading.Lock()
 MAX_CUSTOM_INSTRUCTION_LENGTH = 2000
 
 
-def message_command(message: dict[str, Any]) -> str:
+def message_command(message: dict[str, Any]) -> Command | None:
     text = str(message.get("text") or message.get("caption") or "").strip()
     if not text.startswith("/"):
-        return ""
-    return text.split()[0].split("@", 1)[0].lower()
+        return None
+    raw = text.split()[0].split("@", 1)[0].lower()
+    try:
+        return Command(raw)
+    except ValueError:
+        return None
 
 
 def post_directive(
     message: dict[str, Any],
 ) -> TelegramPostDirective | None:
-    if message_command(message) != "/post_prod":
+    if message_command(message) is not Command.POST_PROD:
         return None
 
     text = str(message.get("text") or message.get("caption") or "").strip()
@@ -131,11 +142,16 @@ def handle_command(
     *,
     is_owner: bool,
 ) -> str:
-    command, _, rest = text.strip().partition(" ")
-    command = command.split("@", 1)[0].lower()
+    raw, _, rest = text.strip().partition(" ")
+    raw = raw.split("@", 1)[0].lower()
     rest = rest.strip()
 
-    if command in {"/start", "/help"}:
+    try:
+        command = Command(raw)
+    except ValueError:
+        return "Unknown command. Send /help for options."
+
+    if command in {Command.START, Command.HELP}:
         models_list = ", ".join(
             f"{alias}={name}"
             for alias, name in AVAILABLE_GEMINI_MODELS.items()
@@ -151,6 +167,8 @@ def handle_command(
             "/reset_users (owner only)\n"
             "/set_model [alias]  — choose AI model; omit to list\n"
             "/current_model\n"
+            "/set_fallback_model [chain]  — choose fallback OpenCode chain; omit to show current\n"
+            "/current_fallback_model\n"
             "/status\n"
             f"Available models: {models_list}\n"
             "Send a flyer image to preview a mock payload.\n"
@@ -158,13 +176,13 @@ def handle_command(
             "or send it first and upload images within 90 seconds."
         )
 
-    if command == "/set_domain":
+    if command is Command.SET_DOMAIN:
         if not rest.startswith(("http://", "https://")):
             return "Usage: /set_domain https://wp.example.com"
         BOT_SETTINGS.wordpress_base_url = rest.rstrip("/")
         return "WordPress domain URL updated for this running bot instance."
 
-    if command == "/refresh_jwt":
+    if command is Command.REFRESH_JWT:
         if rest:
             return (
                 "/refresh_jwt does not accept credentials or other "
@@ -177,12 +195,12 @@ def handle_command(
             "bot instance."
         )
 
-    if command == "/reset_skill":
+    if command is Command.RESET_SKILL:
         BOT_SETTINGS.skill_markdown = None
         _, source = load_skill_markdown()
         return f"Runtime skill upload cleared. Active fallback: {source}."
 
-    if command in {"/add_users"}:
+    if command is Command.ADD_USERS:
         if not is_owner:
             return "Only the primary Telegram owner can change allowed users."
         usernames = rest.replace(",", " ").split()
@@ -211,7 +229,7 @@ def handle_command(
         )
         return f"Runtime extra Telegram users now allowed: {formatted}."
 
-    if command in {"/rm_users"}:
+    if command is Command.RM_USERS:
         if not is_owner:
             return "Only the primary Telegram owner can change allowed users."
         usernames = rest.replace(",", " ").split()
@@ -237,13 +255,13 @@ def handle_command(
         formatted = ", ".join(f"@{username}" for username in removed)
         return f"Runtime extra Telegram users removed: {formatted}."
 
-    if command == "/reset_users":
+    if command is Command.RESET_USERS:
         if not is_owner:
             return "Only the primary Telegram owner can change allowed users."
         BOT_SETTINGS.extra_telegram_usernames = []
         return "Runtime extra Telegram users cleared."
 
-    if command == "/set_model":
+    if command is Command.SET_MODEL:
         if not rest:
             lines = [
                 "Available AI models (use /set_model <alias>):",
@@ -274,7 +292,7 @@ def handle_command(
             "The change applies to the next flyer you send."
         )
 
-    if command == "/current_model":
+    if command is Command.CURRENT_MODEL:
         alias = _MODEL_PREFERENCES.get_model(chat_id)
         if alias:
             return (
@@ -289,7 +307,59 @@ def handle_command(
             "Send /set_model to choose a model."
         )
 
-    if command == "/status":
+    if command is Command.SET_FALLBACK_MODEL:
+        if not rest:
+            current = _FALLBACK_CHAINS.get_chain(chat_id)
+            if current:
+                return (
+                    "Current fallback chain:\n"
+                    f"  {current}\n\n"
+                    "To clear it and use the environment default, send:\n"
+                    "  /set_fallback_model default\n\n"
+                    "To set a custom chain, send:\n"
+                    "  /set_fallback_model provider:model:endpoint_style,...\n"
+                    "Example:\n"
+                    "  /set_fallback_model go:kimi-k2.6:chat,go:qwen3.7-plus:messages"
+                )
+            return (
+                "No per-chat fallback chain set. "
+                "Using environment / fallback default.\n\n"
+                "To set a custom OpenCode chain, send:\n"
+                "  /set_fallback_model provider:model:endpoint_style,...\n"
+                "Example:\n"
+                "  /set_fallback_model go:kimi-k2.6:chat,go:qwen3.7-plus:messages"
+            )
+
+        if rest == "default":
+            _FALLBACK_CHAINS.clear_chain(chat_id)
+            return (
+                "Fallback chain preference cleared. "
+                "The environment / fallback default will be used."
+            )
+
+        _FALLBACK_CHAINS.set_chain(chat_id, rest)
+        return (
+            f"Fallback OpenCode chain set to:\n"
+            f"  {rest}\n"
+            "The change applies to the next flyer you send."
+        )
+
+    if command is Command.CURRENT_FALLBACK_MODEL:
+        chain = _FALLBACK_CHAINS.get_chain(chat_id)
+        if chain:
+            return (
+                f"Active fallback chain:\n"
+                f"  {chain}\n"
+                "Send /set_fallback_model to change or clear."
+            )
+        env_chain = os.getenv("OPENCODE_MODEL_CHAIN") or "DEFAULT_OPENCODE_CHAIN (default)"
+        return (
+            f"No per-chat fallback chain set. "
+            f"Using environment / fallback: {env_chain}.\n"
+            "Send /set_fallback_model to set a custom chain."
+        )
+
+    if command is Command.STATUS:
         _, skill_source = load_skill_markdown()
         opencode_status = probe_opencode()
         wordpress_domain = (
@@ -311,12 +381,19 @@ def handle_command(
             if model_alias
             else "AI model: environment / fallback"
         )
+        fallback_chain = _FALLBACK_CHAINS.get_chain(chat_id)
+        fallback_line = (
+            f"Fallback chain: {fallback_chain}"
+            if fallback_chain
+            else "Fallback chain: environment / fallback"
+        )
         return (
             "Current runtime settings:\n"
             f"WordPress domain: {wordpress_domain}\n"
             f"JWT: {'runtime set' if BOT_SETTINGS.jwt else 'env fallback'}\n"
             f"Skill: {skill_source}\n"
             + model_line + "\n"
+            + fallback_line + "\n"
             f"Allowed Telegram users: {allowed_users}\n"
             f"OpenCode: {opencode_json}"
         )
@@ -366,6 +443,7 @@ def process_flyer_message(
                 custom_instruction=(
                     directive.instruction if directive is not None else None
                 ),
+                fallback_chain=_FALLBACK_CHAINS.get_chain(chat_id),
             )
         telegram_send_message(chat_id, format_preview(result))
     except AgentError as error:
@@ -476,7 +554,7 @@ def handle_telegram_update(update: dict[str, Any]) -> None:
         telegram_send_message(chat_id, f"Failed: {error}")
         return
 
-    if command == "/set_skill":
+    if command is Command.SET_SKILL:
         try:
             BOT_SETTINGS.skill_markdown = read_uploaded_skill(message)
             telegram_send_message(
@@ -520,7 +598,7 @@ def handle_telegram_update(update: dict[str, Any]) -> None:
         )
         return
 
-    if command and directive is None:
+    if directive is None and (command is not None or text.startswith("/")):
         telegram_send_message(
             chat_id,
             "Unsupported image command. Use /post_prod "
