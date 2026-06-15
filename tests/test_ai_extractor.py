@@ -100,6 +100,8 @@ def test_raw_extractor_uses_opencode_direct_image_when_requested(
         *,
         evidence_text: str | None = None,
         custom_instruction: str | None = None,
+        qr_context_text_value: str = "",
+        web_context_text_value: str = "",
     ) -> dict[str, str]:
         nonlocal direct_called
         direct_called = True
@@ -162,6 +164,8 @@ def test_gemini_failure_falls_back_to_ordered_opencode_direct_image(
         *,
         evidence_text: str | None = None,
         custom_instruction: str | None = None,
+        qr_context_text_value: str = "",
+        web_context_text_value: str = "",
     ) -> dict[str, str]:
         return {"title": "Sales to Sampit"}
 

@@ -12,7 +12,7 @@ from automation.models import AgentError, BuildResult
 from automation.payload.constants import DEFAULT_OPENCODE_CHAIN
 from automation.payload.normalize import normalize_payload
 from automation.wordpress.auth import wordpress_config
-from automation.wordpress.ingest import ingest_options, post_draft
+from automation.wordpress.ingest import try_ingest_options, post_draft
 
 
 def build_result(
@@ -25,7 +25,7 @@ def build_result(
 ) -> BuildResult:
     load_environment()
     config = wordpress_config()
-    options = ingest_options(config)
+    options, options_warning = try_ingest_options(config)
     extracted, resolved_model, enrichment = extract_payload_from_image(
         image_path,
         options,
@@ -38,6 +38,9 @@ def build_result(
         options,
         source=str(image_path.resolve()),
     )
+
+    if options_warning:
+        warnings.append(options_warning)
 
     result_data = {
         "mode": "post_prod" if post else "mock_preview",

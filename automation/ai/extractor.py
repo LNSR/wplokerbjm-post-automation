@@ -21,10 +21,32 @@ from automation.ai.opencode.client import (
 )
 from automation.ai.opencode.probe import new_opencode_attempt, opencode_attempts
 from automation.ai.prompt import build_copywriter_prompt, build_copywriter_user_text, build_raw_facts_prompt
+from automation.ai.qr import qr_context_text as _qr_context_text
 from automation.config import opencode_api_key, opencode_key_label
 from automation.models import AgentError, OpenCodeAttempt
 from automation.payload.constants import ACCEPTED_PAYLOAD_FIELDS, DEFAULT_COPYWRITER_CHAIN, DEFAULT_GEMINI_MODEL
+from automation.web.exa import exa_context_text as _exa_context_text
 from automation.wordpress.client import parse_json_response
+
+
+def _extract_enrichment(image_path: Path) -> tuple[str, str, dict[str, Any]]:
+    """Extract QR and Exa enrichment info.
+
+    Returns (qr_context_text, web_context_text, enrichment_dict).
+    Enrichment is captured here so it survives AI provider fallbacks.
+    """
+    qr_text, qr_redirects = _qr_context_text(image_path)
+    web_text = _exa_context_text(qr_text)
+    exa_count = sum(
+        1 for line in web_text.split("\n")
+        if line.strip().startswith(("1.", "2.", "3.", "4.", "5."))
+    ) if web_text else 0
+    enrichment = {
+        "exa_used": bool(web_text),
+        "exa_count": exa_count,
+        "qr_redirects": qr_redirects,
+    }
+    return qr_text, web_text, enrichment
 
 
 EVIDENCE_STOPWORDS = {
@@ -110,16 +132,23 @@ def extract_raw_facts_from_image(
     custom_instruction: str | None = None,
     fallback_chain: str | None = None,
 ) -> tuple[dict[str, Any], str, dict[str, Any]]:
-    """Return (raw_facts, model_name, enrichment)."""
+    """Return (raw_facts, model_name, enrichment).
+
+    Enrichment (QR redirects, Exa status) is captured at this level so it
+    survives AI provider fallbacks.
+    """
+    qr_text, web_text, enrichment = _extract_enrichment(image_path)
     errors: list[str] = []
     gemini_model_name = model or os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL)
     gemini_prefix: str | None = None
 
     if os.getenv("AI_PROVIDER", "gemini").lower() != "opencode":
         try:
-            raw_facts, enrichment = extract_facts_with_gemini(
+            raw_facts = extract_facts_with_gemini(
                 image_path,
                 options,
+                qr_text,
+                web_text,
                 model=model,
                 custom_instruction=custom_instruction,
             )
@@ -135,9 +164,11 @@ def extract_raw_facts_from_image(
                 options,
                 attempt,
                 custom_instruction=custom_instruction,
+                qr_context_text_value=qr_text,
+                web_context_text_value=web_text,
             )
             resolved = f"{gemini_prefix or ''}opencode:{attempt.provider}/{attempt.model}"
-            return raw_facts, resolved, {"exa_used": False, "exa_count": 0, "qr_redirects": []}
+            return raw_facts, resolved, enrichment
         except AgentError as error:
             errors.append(f"{attempt.provider}/{attempt.model} direct image: {error}")
 
@@ -186,12 +217,22 @@ def extract_facts_with_opencode_direct_image(
     *,
     evidence_text: str | None = None,
     custom_instruction: str | None = None,
+    qr_context_text_value: str = "",
+    web_context_text_value: str = "",
 ) -> dict[str, Any]:
     api_key = opencode_api_key(attempt.provider)
     if not api_key:
         raise AgentError(f"Missing API key for OpenCode {attempt.provider}: {opencode_key_label(attempt.provider)}.")
 
-    prompt = build_raw_facts_prompt(options, custom_instruction)
+    context_parts = []
+    if qr_context_text_value:
+        context_parts.append(f"<decoded_qr_codes>\n{qr_context_text_value}\n</decoded_qr_codes>")
+    if web_context_text_value:
+        context_parts.append(f"<web_search_context>\n{web_context_text_value}\n</web_search_context>")
+    if context_parts:
+        prompt = "\n".join(context_parts) + "\n\n" + build_raw_facts_prompt(options, custom_instruction)
+    else:
+        prompt = build_raw_facts_prompt(options, custom_instruction)
     contract_error: AgentError | None = None
     for repair_attempt in range(2):
         if attempt.endpoint_style == "chat":

@@ -25,6 +25,18 @@ def ingest_options(config: WordpressConfig) -> dict[str, Any]:
     return data
 
 
+def try_ingest_options(config: WordpressConfig) -> tuple[dict[str, Any], str | None]:
+    """Fetch ingest options, returning (options, warning).
+
+    Returns (empty_dict, warning) on failure so the pipeline can continue
+    with local-only extraction and skip taxonomy validation.
+    """
+    try:
+        return ingest_options(config), None
+    except AgentError as error:
+        return {}, f"Options unavailable, taxonomy validation skipped: {error}"
+
+
 def encode_multipart(payload: NormalizedPayload, image_path: Path) -> tuple[str, bytes]:
     boundary = "----wplbjm" + uuid.uuid4().hex
     chunks: list[bytes] = []

@@ -10,19 +10,36 @@ logger = logging.getLogger(__name__)
 
 
 def decode_qr_codes(image_path: Path) -> list[str]:
+    """Decode QR codes from image using zxingcpp.
+
+    Tries PIL first (common dependency), then falls back to OpenCV (optional).
+    """
     try:
-        import cv2
         import zxingcpp
     except ImportError:
         return []
 
-    image = cv2.imread(str(image_path.resolve()))
-    if image is None:
-        return []
+    barcodes = None
 
+    # Primary: PIL (nearly always available with Pillow)
     try:
-        barcodes = zxingcpp.read_barcodes(image)
+        from PIL import Image
+        pil_image = Image.open(image_path)
+        barcodes = zxingcpp.read_barcodes(pil_image)
     except Exception:
+        pass
+
+    # Fallback: OpenCV (optional heavy dependency)
+    if not barcodes:
+        try:
+            import cv2
+            image = cv2.imread(str(image_path.resolve()))
+            if image is not None:
+                barcodes = zxingcpp.read_barcodes(image)
+        except Exception:
+            pass
+
+    if not barcodes:
         return []
 
     values: list[str] = []

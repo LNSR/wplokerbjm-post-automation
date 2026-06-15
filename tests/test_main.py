@@ -61,7 +61,7 @@ def test_build_result_preview_does_not_post(
         "wordpress_config",
         lambda: WordpressConfig(base_url="https://wp.test", jwt="aaa.bbb.ccc"),
     )
-    monkeypatch.setattr(main_module, "ingest_options", lambda config: {})
+    monkeypatch.setattr(main_module, "try_ingest_options", lambda config: ({}, None))
     monkeypatch.setattr(
         main_module,
         "extract_payload_from_image",
@@ -106,7 +106,7 @@ def test_build_result_post_calls_wordpress_once(
         "wordpress_config",
         lambda: WordpressConfig(base_url="https://wp.test", jwt="aaa.bbb.ccc"),
     )
-    monkeypatch.setattr(main_module, "ingest_options", lambda config: {})
+    monkeypatch.setattr(main_module, "try_ingest_options", lambda config: ({}, None))
     monkeypatch.setattr(
         main_module,
         "extract_payload_from_image",
@@ -160,7 +160,7 @@ def test_build_result_forwards_custom_instruction(
             jwt="aaa.bbb.ccc",
         ),
     )
-    monkeypatch.setattr(main_module, "ingest_options", lambda config: {})
+    monkeypatch.setattr(main_module, "try_ingest_options", lambda config: ({}, None))
 
     def fake_extract(
         image_path: Path,
