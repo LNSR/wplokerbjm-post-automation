@@ -69,14 +69,14 @@ def test_validate_runtime_environment_requires_public_url(
 @pytest.mark.parametrize(
     ("key", "value", "message"),
     [
-        ("WPLBJM_API_BASE_URL_PROD", "localhost", "wordpress_base_url"),
-        ("WPLBJM_JWT_PROD", "not-a-jwt", "wordpress_jwt"),
+        ("WPLBJM_API_BASE_URL_PROD", "localhost", "WPLBJM_API_BASE_URL_PROD"),
+        ("WPLBJM_JWT_PROD", "not-a-jwt", "WPLBJM_JWT_PROD"),
         ("TELEGRAM_USERNAME", "bad user", "telegram_username"),
         ("TELEGRAM_BOT_TOKEN", "bad-token", "telegram_bot_token"),
         ("TELEGRAM_WEBHOOK_SECRET", "too-short", "telegram_webhook_secret"),
         ("OPENCODE_MODEL_CHAIN", "zen:model:bad", "opencode_model_chain"),
         ("OPENCODE_COPYWRITER_CHAIN", "zen:model:bad", "opencode_copywriter_chain"),
-        ("TELEGRAM_BULK_COMMAND_TTL_SECONDS", "0", "bulk_command_ttl_seconds"),
+        ("TELEGRAM_BULK_COMMAND_TTL_SECONDS", "0", "TELEGRAM_BULK_COMMAND_TTL_SECONDS"),
     ],
 )
 def test_validate_runtime_environment_rejects_invalid_values(

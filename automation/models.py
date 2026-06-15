@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from enum import Enum
 from typing import Any, Literal
@@ -18,6 +19,9 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from automation.payload.constants import DEFAULT_COPYWRITER_CHAIN, DEFAULT_OPENCODE_CHAIN
 
 
 class AgentError(RuntimeError):
@@ -91,22 +95,37 @@ class BotSettings(StrictModel):
         return normalized
 
 
-class RuntimeEnvironment(StrictModel):
-    wordpress_base_url: StrictStr
-    wordpress_domain: StrictStr | None = None
-    wordpress_jwt: SecretStr
+class RuntimeEnvironment(BaseSettings):
+    model_config = SettingsConfigDict(
+        strict=True,
+        extra='forbid',
+        validate_assignment=True,
+    )
+
+    wordpress_base_url: StrictStr = Field(validation_alias="WPLBJM_API_BASE_URL_PROD")
+    wordpress_domain: StrictStr | None = Field(
+        default=None,
+        validation_alias="WPLBJM_API_BASE_URL_PROD",
+    )
+    wordpress_jwt: SecretStr = Field(validation_alias="WPLBJM_JWT_PROD")
     telegram_username: StrictStr
     telegram_bot_token: SecretStr
     telegram_webhook_secret: SecretStr
     public_base_url: StrictStr | None = None
     ai_provider: Literal["opencode", "gemini"] = "gemini"
-    opencode_model_chain: StrictStr
-    opencode_copywriter_chain: StrictStr
+    opencode_model_chain: StrictStr = Field(default=DEFAULT_OPENCODE_CHAIN)
+    opencode_copywriter_chain: StrictStr = Field(default=DEFAULT_COPYWRITER_CHAIN)
     opencode_api_key: SecretStr | None = None
     google_ai_studio_key: SecretStr | None = None
     skill_md_path: StrictStr | None = None
-    media_group_delay_seconds: StrictFloat
-    bulk_command_ttl_seconds: StrictFloat
+    media_group_delay_seconds: StrictFloat = Field(
+        default=2.0,
+        validation_alias="TELEGRAM_MEDIA_GROUP_DELAY_SECONDS",
+    )
+    bulk_command_ttl_seconds: StrictFloat = Field(
+        default=90.0,
+        validation_alias="TELEGRAM_BULK_COMMAND_TTL_SECONDS",
+    )
 
     @field_validator(
         "wordpress_base_url",
@@ -182,6 +201,19 @@ class RuntimeEnvironment(StrictModel):
                     f"unsupported endpoint style: {endpoint_style}",
                 )
         return value
+
+    @model_validator(mode="after")
+    def set_public_base_url(self) -> RuntimeEnvironment:
+        """Set public_base_url from environment if not explicitly provided."""
+        if self.public_base_url is None:
+            # Check multiple env vars in priority order
+            if url := os.environ.get("PUBLIC_BASE_URL"):
+                self.public_base_url = url
+            elif url := os.environ.get("RENDER_EXTERNAL_URL"):
+                self.public_base_url = url
+            elif hostname := os.environ.get("RENDER_EXTERNAL_HOSTNAME"):
+                self.public_base_url = f"https://{hostname}"
+        return self
 
     @model_validator(mode="after")
     def validate_ai_credentials(self) -> RuntimeEnvironment:

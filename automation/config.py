@@ -125,47 +125,35 @@ def validate_runtime_environment(
     require_public_url: bool = True,
     root: Path | None = None,
 ) -> RuntimeEnvironment:
+    """Validate runtime environment using pydantic-settings.
+    
+    When environ is provided, use it directly for validation.
+    Otherwise, BaseSettings will read from os.environ automatically.
+    """
     env = environ or os.environ
-    data = {
-        "wordpress_base_url": env.get("WPLBJM_API_BASE_URL_PROD", ""),
-        "wordpress_domain": env.get("WPLBJM_API_BASE_URL_PROD") or None,
-        "wordpress_jwt": env.get("WPLBJM_JWT_PROD", ""),
-        "telegram_username": env.get("TELEGRAM_USERNAME", ""),
-        "telegram_bot_token": env.get("TELEGRAM_BOT_TOKEN", ""),
-        "telegram_webhook_secret": env.get("TELEGRAM_WEBHOOK_SECRET", ""),
-        "public_base_url": public_url_from_env(env),
-        "ai_provider": (env.get("AI_PROVIDER") or "gemini").lower(),
-        "opencode_model_chain": env.get(
-            "OPENCODE_MODEL_CHAIN",
-            DEFAULT_OPENCODE_CHAIN,
-        ),
-        "opencode_copywriter_chain": env.get(
-            "OPENCODE_COPYWRITER_CHAIN",
-            DEFAULT_COPYWRITER_CHAIN,
-        ),
-        "opencode_api_key": env.get("OPENCODE_API_KEY") or None,
-        "google_ai_studio_key": env.get("GOOGLE_AI_STUDIO_KEY") or None,
-        "skill_md_path": env.get("SKILL_MD_PATH") or None,
-        "media_group_delay_seconds": env_float(
-            "TELEGRAM_MEDIA_GROUP_DELAY_SECONDS",
-            "2",
-            environ=env,
-        ),
-        "bulk_command_ttl_seconds": env_float(
-            "TELEGRAM_BULK_COMMAND_TTL_SECONDS",
-            "90",
-            environ=env,
-        ),
-    }
-
+    
     errors: list[str] = []
+    settings = None
+    
     try:
-        settings = RuntimeEnvironment.model_validate(data)
+        if environ is not None:
+            # For testing: temporarily override os.environ
+            original_environ = dict(os.environ)
+            try:
+                os.environ.clear()
+                os.environ.update(environ)
+                settings = RuntimeEnvironment()
+            finally:
+                # Restore original environment
+                os.environ.clear()
+                os.environ.update(original_environ)
+        else:
+            # Production: read from os.environ directly
+            settings = RuntimeEnvironment()
     except ValidationError as error:
         errors.append(validation_error_summary(error))
-        settings = None
 
-    if require_public_url and not data["public_base_url"]:
+    if require_public_url and (settings is None or not settings.public_base_url):
         errors.append(
             "PUBLIC_BASE_URL, RENDER_EXTERNAL_URL, or "
             "RENDER_EXTERNAL_HOSTNAME is required for Telegram webhook setup",

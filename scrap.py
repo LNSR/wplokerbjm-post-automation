@@ -1,123 +1,319 @@
-import instaloader
-import dotenv
+"""Standalone Instagram post scraper script"""
+
 import os
 import time
 import random
 from pathlib import Path
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Initialize Instaloader
-loader = instaloader.Instaloader(
-    download_comments=False,
-    download_geotags=False,
-    download_videos=False,
-    download_video_thumbnails=False,
-    save_metadata=False,
-    download_pictures=True,
-    compress_json=True,
-)
+import dotenv
+import instaloader
+from pydantic import BaseModel, Field, ValidationError, model_validator
 
 
-def loadEnvVariables() -> tuple[str, str]:
-    dotenv.load_dotenv("./.env")
-    ACCOUNT_NAME = os.getenv("ACCOUNT_NAME")  # Your login username
-    TARGET_USERNAME = os.getenv("TARGET_USERNAME")  # The target profile username
-    return ACCOUNT_NAME, TARGET_USERNAME
+# ---------------------------------------------------------------------------
+# Custom Exceptions
+# ---------------------------------------------------------------------------
 
 
-def get_target_profile(username: str) -> instaloader.Profile:
-    profile = instaloader.Profile.from_username(loader.context, username)
-    try:
-        if profile.is_private:
-            print(f"The profile '{username}' is private. Cannot access posts.")
-            exit(1)
-    except instaloader.exceptions.QueryReturnedBadRequestException:
-        print("\n[Error] Instagram returned a 400 Bad Request.")
-        print("Your session cookie might be blocked or needs browser verification.")
-        print(
-            "Might need to wait for a while or log in again to refresh the session cookie."
+class ScraperError(Exception):
+    """Base exception for all scraper-related errors."""
+
+    pass
+
+
+class SessionError(ScraperError):
+    """Session loading or authentication failure."""
+
+    pass
+
+
+class ProfileError(ScraperError):
+    """Profile access failure (private, not found, bad request)."""
+
+    pass
+
+
+# ---------------------------------------------------------------------------
+# Settings (strict Pydantic model)
+# ---------------------------------------------------------------------------
+
+
+class Settings(BaseSettings, frozen=True):
+    """Strictly typed environment configuration."""
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+    )
+
+    account_name: str
+    target_username: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def _from_env(cls, data: dict) -> dict:
+        """Load env vars before field validation.
+        Accepts optional 'env_path' key, stripped before construction.
+        """
+        env_path = data.pop("env_path", ".env")
+        dotenv.load_dotenv(env_path)
+
+        account = os.getenv("ACCOUNT_NAME")
+        target = os.getenv("TARGET_USERNAME")
+
+        if not account:
+            raise ValueError("ACCOUNT_NAME is required in .env")
+        if not target:
+            raise ValueError("TARGET_USERNAME is required in .env")
+
+        return {"account_name": account, "target_username": target}
+
+
+# ---------------------------------------------------------------------------
+# Pydantic response model
+# ---------------------------------------------------------------------------
+
+
+class DownloadResult(BaseModel):
+    """Result of a download run."""
+
+    count: int = Field(strict=True, ge=0)
+    username: str = Field(strict=True, min_length=1)
+
+
+# ---------------------------------------------------------------------------
+# Instagram Session
+# ---------------------------------------------------------------------------
+
+
+class InstagramSession:
+    """Wraps Instaloader initialisation and session management."""
+
+    def __init__(self) -> None:
+        self._loader = instaloader.Instaloader(
+            download_comments=False,
+            download_geotags=False,
+            download_videos=False,
+            download_video_thumbnails=False,
+            save_metadata=False,
+            download_pictures=True,
+            compress_json=True,
         )
-        exit(1)
-    except instaloader.exceptions.ProfileNotExistsException:
-        print(f"The profile '{username}' does not exist.")
-        exit(1)
-    return profile
+
+    @property
+    def loader(self) -> instaloader.Instaloader:
+        return self._loader
+
+    @property
+    def context(self):
+        return self._loader.context
+
+    def load_session(self, account_name: str) -> None:
+        """Load an existing Instaloader session from disk."""
+        try:
+            self._loader.load_session_from_file(account_name)
+        except instaloader.exceptions.BadCredentialsException:
+            raise SessionError(
+                f"Invalid credentials for {account_name}. "
+                f"Run 'instaloader --login {account_name}' in terminal "
+                f"to create a new session."
+            )
 
 
-try:
-    ACCOUNT_NAME, TARGET_USERNAME = loadEnvVariables()
-except dotenv.error.DotenvError as e:
-    print(f"Error loading environment variables: {e}", end="\n")
-    print(
-        "Please ensure that the .env file exists and contains ACCOUNT_NAME and TARGET_USERNAME."
+# ---------------------------------------------------------------------------
+# Rate Limiter
+# ---------------------------------------------------------------------------
+
+
+class RateLimiter:
+    """Randomised delay between requests to avoid rate limiting."""
+
+    def __init__(self, min_seconds: float = 1.0, max_seconds: float = 3.0) -> None:
+        self._min = min_seconds
+        self._max = max_seconds
+
+    def wait(self) -> None:
+        """Sleep for a random interval."""
+        delay = random.uniform(self._min, self._max)
+        print(f"Waiting {delay:.2f} seconds before next download...")
+        time.sleep(delay)
+
+
+# ---------------------------------------------------------------------------
+# File Manager
+# ---------------------------------------------------------------------------
+
+
+class FileManager:
+    """Directory creation and cleanup for downloaded files."""
+
+    def __init__(self, base_dir: str = "downloads") -> None:
+        self._base = Path(base_dir)
+
+    def prepare(self, username: str) -> Path:
+        """Create and clean the target download directory."""
+        target_dir = self._base / username
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        existing_files = list(target_dir.iterdir())
+        if existing_files:
+            print(
+                f"Directory '{target_dir}' already exists. "
+                f"Cleaning up {len(existing_files)} old file(s)..."
+            )
+            for file in existing_files:
+                if file.is_file():
+                    file.unlink()
+            print("Cleanup complete. Starting fresh.")
+
+        return target_dir
+
+    @staticmethod
+    def remove_captions(target_dir: Path) -> None:
+        """Delete JSON and TXT caption sidecar files."""
+        removed = 0
+        for file in target_dir.iterdir():
+            if file.suffix.lower() in (".json", ".txt"):
+                file.unlink()
+                removed += 1
+        if removed:
+            print(f"Removed {removed} caption file(s).")
+
+
+# ---------------------------------------------------------------------------
+# Scraper Service
+# ---------------------------------------------------------------------------
+
+
+class ScraperService:
+    """Orchestrates profile access and post downloading."""
+
+    def __init__(
+        self,
+        session: InstagramSession,
+        rate_limiter: RateLimiter,
+    ) -> None:
+        self._session = session
+        self._rate_limiter = rate_limiter
+
+    def get_profile(self, username: str) -> instaloader.Profile:
+        """Fetch and validate a public Instagram profile."""
+        try:
+            profile = instaloader.Profile.from_username(self._session.context, username)
+        except instaloader.exceptions.ProfileNotExistsException:
+            raise ProfileError(f"The profile '{username}' does not exist.")
+        except instaloader.exceptions.QueryReturnedBadRequestException:
+            raise ProfileError(
+                "Instagram returned a 400 Bad Request. "
+                "Your session cookie may be blocked or needs browser verification. "
+                "Try waiting a while or re-login to refresh the session cookie."
+            )
+
+        if profile.is_private:
+            raise ProfileError(
+                f"The profile '{username}' is private. Cannot access posts."
+            )
+
+        return profile
+
+    def download(
+        self,
+        profile: instaloader.Profile,
+        target_dir: Path,
+        max_images: int,
+    ) -> DownloadResult:
+        """Download images from profile posts up to max_images."""
+        count = 0
+
+        try:
+            for post in profile.get_posts():
+                if post.is_video:
+                    continue
+
+                if self._session.loader.download_post(post, target=target_dir):
+                    count += 1
+                    print(f"Progress: {count}/{max_images} images downloaded.")
+
+                    if count < max_images:
+                        self._rate_limiter.wait()
+
+                if count >= max_images:
+                    break
+
+        except instaloader.exceptions.ConnectionException as cause:
+            raise ScraperError(
+                f"Instagram blocked the request: {cause}. "
+                "Session may have expired or you are being rate-limited."
+            ) from cause
+
+        return DownloadResult(count=count, username=profile.username)
+
+
+# ---------------------------------------------------------------------------
+# Entry Point
+# ---------------------------------------------------------------------------
+
+
+def _prompt_max_images(target_username: str) -> int:
+    """Read the maximum image count from user input."""
+    raw = input(
+        f"Enter the maximum number of images to download from " f"{target_username}: "
     )
-    exit(1)
-
-# Load session from file
-try:
-    loader.load_session_from_file(ACCOUNT_NAME)
-    print(f"Session loaded successfully for {ACCOUNT_NAME}!")
-except instaloader.exceptions.BadCredentialsException:
-    print(
-        f"Invalid credentials for {ACCOUNT_NAME}. Please run 'instaloader --login {ACCOUNT_NAME}' in terminal to create a new session."
-    )
-    exit(1)
-
-
-profile: instaloader.Profile = get_target_profile(TARGET_USERNAME)
+    if not raw.strip():
+        raise ValueError("No value entered")
+    return int(raw)
 
 
 def main() -> None:
-    count_images = 0
-    maximum_image = int(
-        input(
-            f"Enter the maximum number of images to download from {TARGET_USERNAME}: "
-        )
-    )
-
-    # Download path
-    target_dir = Path(f"downloads/{TARGET_USERNAME}")
-    target_dir.mkdir(parents=True, exist_ok=True)
-
-    def clean_caption_files() -> None:
-        for file in target_dir.iterdir():
-            if file.suffix.lower() in [".json", ".txt"]:
-                file.unlink()
-
+    """Application entry point — wires dependencies and runs the scraper."""
+    # --- Settings (Pydantic-validated) ---
     try:
+        settings = Settings()
+    except ValidationError as e:
+        print(f"Configuration error:\n{e}")
+        return
 
-        if target_dir.exists():
-            print(f"Directory '{target_dir}' already exists. Cleaning up old files...")
-            for file in target_dir.iterdir():
-                if file.is_file():
-                    file.unlink()
-            print("Old files cleaned up. Starting fresh.")
+    # --- Session ---
+    session = InstagramSession()
+    try:
+        session.load_session(settings.account_name)
+        print(f"Session loaded successfully for {settings.account_name}!")
+    except SessionError as e:
+        print(f"Session error: {e}")
+        return
 
-        for post in profile.get_posts():
-            if post.is_video:
-                continue
+    # --- Wire dependencies ---
+    file_manager = FileManager()
+    rate_limiter = RateLimiter()
+    scraper = ScraperService(session, rate_limiter)
 
-            success: bool = loader.download_post(post, target=target_dir)
+    # --- Profile ---
+    try:
+        profile = scraper.get_profile(settings.target_username)
+    except ProfileError as e:
+        print(f"Profile error: {e}")
+        return
 
-            if success:
-                count_images += 1
-                print(f"Progress: {count_images}/{maximum_image} images downloaded.")
-                sleep_time: float = random.uniform(1, 3)
-                print(
-                    f"Waiting for a few {sleep_time:.2f} seconds before the next download..."
-                )
-                time.sleep(sleep_time)
+    # --- User input ---
+    try:
+        max_images = _prompt_max_images(settings.target_username)
+    except ValueError:
+        print("Invalid number entered.")
+        return
 
-            if count_images >= maximum_image:
-                print(
-                    f"\nSuccessfully downloaded {count_images} images from {TARGET_USERNAME}."
-                )
-                clean_caption_files()
-                print("Cleaned up caption files. Exiting.")
-                break
-
-    except instaloader.exceptions.ConnectionException as e:
-        print(f"\nInstagram blocked the request: {e}")
-        print("Your session might have expired, or you're being rate-limited.")
+    # --- Download ---
+    target_dir = file_manager.prepare(settings.target_username)
+    try:
+        result = scraper.download(profile, target_dir, max_images)
+        print(
+            f"\nSuccessfully downloaded {result.count} image(s) "
+            f"from {result.username}."
+        )
+        FileManager.remove_captions(target_dir)
+        print("Caption files cleaned up. Done.")
+    except ScraperError as e:
+        print(f"Download error: {e}")
 
 
 if __name__ == "__main__":
