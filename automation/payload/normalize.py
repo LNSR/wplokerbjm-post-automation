@@ -67,7 +67,9 @@ def split_terms(value: Any, *, taxonomy: str) -> list[str]:
     parts: list[str] = []
     for part in raw_parts:
         if taxonomy == "gender":
-            parts.extend(piece.strip() for piece in re.split(r"\s*/\s*", part) if piece.strip())
+            parts.extend(
+                piece.strip() for piece in re.split(r"\s*/\s*", part) if piece.strip()
+            )
         elif part.strip():
             parts.append(part.strip())
     return parts
@@ -82,7 +84,9 @@ def normalize_taxonomy_value(
     if value in (None, "", []):
         return None
 
-    taxonomies = options.get("taxonomies") if isinstance(options.get("taxonomies"), dict) else {}
+    taxonomies = (
+        options.get("taxonomies") if isinstance(options.get("taxonomies"), dict) else {}
+    )
     terms = taxonomies.get(taxonomy)
     if not isinstance(terms, list) or not terms:
         warnings.append(f"Omitted {taxonomy}: backend has no available terms.")
@@ -110,7 +114,9 @@ def normalize_taxonomy_value(
     return ", ".join(dict.fromkeys(accepted))
 
 
-def normalize_social_media(value: Any, warnings: list[str]) -> list[dict[str, str]] | None:
+def normalize_social_media(
+    value: Any, warnings: list[str]
+) -> list[dict[str, str]] | None:
     if value in (None, "", []):
         return None
 
@@ -174,12 +180,18 @@ def normalize_wysiwyg(value: Any, *, bullet_lists: bool = True) -> str:
         except (SyntaxError, ValueError):
             parsed = None
         if isinstance(parsed, list):
-            items = [str(item).strip("'\" ") for item in parsed if str(item).strip("'\" ")]
+            items = [
+                str(item).strip("'\" ") for item in parsed if str(item).strip("'\" ")
+            ]
             if items:
                 return "<ul>" + "".join(f"<li>{item}</li>" for item in items) + "</ul>"
 
     if bullet_lists and BR_RE.search(candidate):
-        parts = [part.strip(" -•\t") for part in BR_RE.split(candidate) if part.strip(" -•\t")]
+        parts = [
+            part.strip(" -•\t")
+            for part in BR_RE.split(candidate)
+            if part.strip(" -•\t")
+        ]
         if len(parts) >= 2:
             return "<ul>" + "".join(f"<li>{part}</li>" for part in parts) + "</ul>"
 
@@ -203,7 +215,11 @@ def linkify_plain_contacts(html: str) -> str:
 
     linked = URL_RE.sub(
         lambda match: safe_anchor(
-            match.group(1) if match.group(1).startswith("http") else f"https://{match.group(1)}",
+            (
+                match.group(1)
+                if match.group(1).startswith("http")
+                else f"https://{match.group(1)}"
+            ),
             "Website Karir" if len(match.group(1)) > 32 else match.group(1),
         ),
         html,
@@ -244,7 +260,9 @@ def normalize_cara_melamar(value: Any, normalized: dict[str, Any]) -> str:
             href = contact if contact.startswith("http") else f"https://{contact}"
             contact_html.append(safe_anchor(href, "Website Karir"))
         elif re.search(r"(\+?62|0)\d", contact):
-            contact_html.append(safe_anchor(f"https://wa.me/{compact_phone(contact)}", contact))
+            contact_html.append(
+                safe_anchor(f"https://wa.me/{compact_phone(contact)}", contact)
+            )
     if not contact_html:
         return html
     return html.replace("</p>", f" {' / '.join(contact_html)}</p>", 1)
@@ -254,7 +272,9 @@ def normalize_scalar(value: Any) -> str:
     if isinstance(value, list):
         return ", ".join(str(item).strip() for item in value if str(item).strip())
     if isinstance(value, dict):
-        return ", ".join(str(item).strip() for item in value.values() if str(item).strip())
+        return ", ".join(
+            str(item).strip() for item in value.values() if str(item).strip()
+        )
     return str(value).strip()
 
 
@@ -314,14 +334,20 @@ def normalize_payload(
     for field in WYSIWYG_FIELDS:
         if field in normalized:
             if field == "cara_melamar":
-                normalized[field] = normalize_cara_melamar(normalized[field], normalized)
+                normalized[field] = normalize_cara_melamar(
+                    normalized[field], normalized
+                )
             else:
-                normalized[field] = normalize_wysiwyg(normalized[field], bullet_lists=True)
+                normalized[field] = normalize_wysiwyg(
+                    normalized[field], bullet_lists=True
+                )
 
     for taxonomy in CONTROLLED_TAXONOMIES:
         if taxonomy not in normalized:
             continue
-        value = normalize_taxonomy_value(taxonomy, normalized[taxonomy], options, warnings)
+        value = normalize_taxonomy_value(
+            taxonomy, normalized[taxonomy], options, warnings
+        )
         if value:
             normalized[taxonomy] = value
         else:
@@ -340,4 +366,6 @@ def normalize_payload(
     try:
         return NormalizedPayload.model_validate(normalized), warnings
     except ValidationError as error:
-        raise AgentError(f"Normalized payload failed strict validation: {validation_error_summary(error)}") from error
+        raise AgentError(
+            f"Normalized payload failed strict validation: {validation_error_summary(error)}"
+        ) from error

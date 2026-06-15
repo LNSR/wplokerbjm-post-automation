@@ -26,7 +26,7 @@ def build_result(
     load_environment()
     config = wordpress_config()
     options = ingest_options(config)
-    extracted, resolved_model = extract_payload_from_image(
+    extracted, resolved_model, enrichment = extract_payload_from_image(
         image_path,
         options,
         model=model,
@@ -44,6 +44,9 @@ def build_result(
         "payload": payload,
         "warnings": warnings,
         "model_name": resolved_model,
+        "exa_enriched": enrichment.get("exa_used", False),
+        "exa_result_count": enrichment.get("exa_count", 0),
+        "qr_redirects": enrichment.get("qr_redirects", []),
     }
 
     if post:

@@ -55,8 +55,11 @@ narasi.
   sumber verifikasi resmi diberikan.
 - Untuk `cara_melamar`, `email_kontak`, `nomor_kontak`, dan `situs_kontak`,
   hanya gunakan channel konkret yang terlihat: email, nomor telepon/WhatsApp,
-  URL, hasil decode QR, atau alamat fisik. Jika QR terlihat tetapi tidak
-  berhasil didecode, tandai sebagai tidak pasti, jangan mengarang link.
+  URL, hasil decode QR, atau alamat fisik. QR codes yang terbaca otomatis
+  di-follow redirect-nya oleh pipeline — final destination URL (WhatsApp,
+  Telegram, Google Form, dll.) tersedia sebagai konteks.
+  Jika QR terlihat tetapi tidak berhasil didecode, tandai sebagai tidak pasti,
+  jangan mengarang link.
 - Field yang tidak cukup bukti harus diomit, bukan dipoles.
 
 ## Output Contract
@@ -77,7 +80,9 @@ Mapping wajib:
 - Gaji angka eksplisit -> `gaji_minimal` / `gaji_maksimal`
 - WhatsApp/telepon -> `nomor_kontak`
 - Email -> `email_kontak`
-- Website/link pendaftaran -> `situs_kontak`
+- Website/link pendaftaran, QR redirect destination -> `situs_kontak`
+- QR code yang didecode dan mengarah ke halaman pendaftaran/link eksternal
+  (setelah redirect di-follow) dapat dimasukkan ke `situs_kontak`
 - Jangan isi angka `0` sebagai placeholder untuk field yang tidak diketahui.
   Omit field numerik yang tidak tertulis jelas.
 - `status_pekerjaan` hanya boleh `0`, `2`, atau `3`; gunakan `0` untuk draft

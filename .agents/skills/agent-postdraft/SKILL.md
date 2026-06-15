@@ -136,6 +136,8 @@ Expected success response:
    - Company.
    - Contacts.
    - Taxonomy choices.
+   - QR redirect info (jika QR ada, tampilkan final destination URL).
+   - Web enrichment status (Exa results, jika tersedia).
    - Uncertain or omitted fields.
    - Target endpoint/environment.
    - Never include JWT.
@@ -235,6 +237,8 @@ After posting, report:
 - Draft ID.
 - Edit URL.
 - Permalink.
+- QR redirect info (original URL → final destination, jika ada).
+- Web enrichment status (Exa result count, jika tersedia).
 - Backend warnings.
 - Any fields intentionally omitted.
 

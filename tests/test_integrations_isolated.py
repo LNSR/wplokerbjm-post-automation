@@ -23,7 +23,9 @@ def test_qr_decoder_fails_open_without_optional_modules(
     image.write_bytes(b"not really an image")
 
     assert decode_qr_codes(image) == []
-    assert qr_context_text(image) == ""
+    text, redirects = qr_context_text(image)
+    assert text == ""
+    assert redirects == []
 
 
 def test_exa_context_without_key_is_empty() -> None:

@@ -106,10 +106,42 @@ def effective_post_directive(
     return _BULK_COMMANDS.effective(chat_id, directive)
 
 
+def _enrichment_lines(result: BuildResult) -> list[str]:
+    """Build enrichment summary lines for QR redirects and Exa web search."""
+    lines: list[str] = []
+
+    # QR redirect info
+    qr_redirects = result.qr_redirects or []
+    if qr_redirects:
+        lines.append("")
+        lines.append("QR:")
+        for info in qr_redirects:
+            orig = info.get("original_url", "")
+            final = info.get("final_url", orig)
+            hops = info.get("redirect_count", 0)
+            if hops > 0:
+                lines.append(f"  {orig}")
+                lines.append(f"  → {final}")
+            else:
+                lines.append(f"  {orig} (no redirect)")
+
+    # Exa web enrichment
+    if result.exa_enriched:
+        lines.append("")
+        lines.append(f"Web: Exa {result.exa_result_count} result(s)")
+    else:
+        lines.append("")
+        lines.append("Web: Exa not available")
+
+    return lines
+
+
 def format_preview(result: BuildResult) -> str:
     payload = result.payload.model_dump(exclude_none=True)
     model_info = result.model_name or "unknown"
     wordpress = result.wordpress
+    enrichment_lines = _enrichment_lines(result)
+
     if wordpress:
         lines = [
             "PROD draft posted.",
@@ -118,6 +150,7 @@ def format_preview(result: BuildResult) -> str:
             f"Edit: {wordpress.get('edit_url', '-')}",
             f"Model: {model_info}",
         ]
+        lines.extend(enrichment_lines)
         if result.warnings:
             lines.append("Warnings: " + "; ".join(result.warnings))
         return "\n".join(lines)
@@ -130,6 +163,7 @@ def format_preview(result: BuildResult) -> str:
         "",
         payload_json,
     ]
+    lines.extend(enrichment_lines)
     if result.warnings:
         lines.append("")
         lines.append("Warnings: " + "; ".join(result.warnings))

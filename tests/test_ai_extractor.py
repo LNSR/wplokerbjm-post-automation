@@ -53,14 +53,14 @@ def test_extractor_runs_two_stage_pipeline(
     seen_raw: dict[str, object] | None = None
 
     def fake_raw(
-        image_path: Path,
-        options: dict[str, object],
-        *,
-        model: str | None = None,
-        custom_instruction: str | None = None,
-        **kwargs: object,
-    ) -> tuple[dict[str, object], str]:
-        return {"title": "Sales to Sampit", "company": "Example"}, "opencode:go/kimi-k2.6"
+            image_path: Path,
+            options: dict[str, object],
+            *,
+            model: str | None = None,
+            custom_instruction: str | None = None,
+            **kwargs: object,
+        ) -> tuple[dict[str, object], str, dict[str, object]]:
+            return {"title": "Sales to Sampit", "company": "Example"}, "opencode:go/kimi-k2.6", {"exa_used": False, "exa_count": 0, "qr_redirects": []}
 
     def fake_copywriter(
         raw_facts: dict[str, object],
@@ -75,10 +75,11 @@ def test_extractor_runs_two_stage_pipeline(
     monkeypatch.setattr(extractor, "extract_raw_facts_from_image", fake_raw)
     monkeypatch.setattr(extractor, "format_payload_with_copywriter", fake_copywriter)
 
-    payload, resolved = extractor.extract_payload_from_image(image, {})
+    payload, resolved, enrichment = extractor.extract_payload_from_image(image, {})
 
     assert payload == {"title": "Sales to Sampit", "nama_perusahaan": "Example"}
     assert resolved == "opencode:go/kimi-k2.6 → copywriter:zen/mimo-v2.5-free"
+    assert enrichment == {"exa_used": False, "exa_count": 0, "qr_redirects": []}
     assert seen_raw == {"title": "Sales to Sampit", "company": "Example"}
 
 
@@ -121,7 +122,7 @@ def test_raw_extractor_uses_opencode_direct_image_when_requested(
         fake_direct,
     )
 
-    payload, resolved = extractor.extract_raw_facts_from_image(image, {})
+    payload, resolved, _ = extractor.extract_raw_facts_from_image(image, {})
 
     assert payload == {"title": "Sales to Sampit"}
     assert resolved == "opencode:zen/vision-model"
@@ -170,7 +171,7 @@ def test_gemini_failure_falls_back_to_ordered_opencode_direct_image(
         fake_direct,
     )
 
-    payload, resolved = extractor.extract_raw_facts_from_image(image, {})
+    payload, resolved, _ = extractor.extract_raw_facts_from_image(image, {})
 
     assert payload == {"title": "Sales to Sampit"}
     assert resolved == "gemini:gemini-test → opencode:zen/mimo-v2.5-free"

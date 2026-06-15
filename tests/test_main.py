@@ -68,6 +68,7 @@ def test_build_result_preview_does_not_post(
         lambda image_path, options, model=None, custom_instruction=None, **kwargs: (
             {"title": "Admin | Example"},
             "gemini:gemini-2.5-flash",
+            {"exa_used": False, "exa_count": 0, "qr_redirects": []},
         ),
     )
     monkeypatch.setattr(
@@ -112,6 +113,7 @@ def test_build_result_post_calls_wordpress_once(
         lambda image_path, options, model=None, custom_instruction=None, **kwargs: (
             {"title": "Admin | Example"},
             "gemini:gemini-2.5-flash",
+            {"exa_used": False, "exa_count": 0, "qr_redirects": []},
         ),
     )
     monkeypatch.setattr(
@@ -167,9 +169,9 @@ def test_build_result_forwards_custom_instruction(
         model: str | None,
         custom_instruction: str | None,
         **kwargs: object,
-    ) -> tuple[dict[str, str], str]:
+    ) -> tuple[dict[str, str], str, dict[str, object]]:
         captured.append(custom_instruction)
-        return {"title": "Admin | Example"}, "gemini:gemini-2.5-flash"
+        return {"title": "Admin | Example"}, "gemini:gemini-2.5-flash", {"exa_used": False, "exa_count": 0, "qr_redirects": []}
 
     monkeypatch.setattr(
         main_module,

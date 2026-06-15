@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from typing import Any
@@ -8,6 +9,8 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from automation.models import ExaSearchResult
+
+logger = logging.getLogger(__name__)
 
 
 EXA_SEARCH_ENDPOINT = "https://api.exa.ai/search"
@@ -67,11 +70,13 @@ def exa_search(query: str, *, num_results: int = 3) -> list[ExaSearchResult]:
     try:
         with urlopen(request, timeout=int(os.getenv("EXA_TIMEOUT_SECONDS", "15"))) as response:
             data = json.loads(response.read().decode("utf-8", errors="replace"))
-    except (HTTPError, URLError, TimeoutError, json.JSONDecodeError, ValueError):
+    except (HTTPError, URLError, TimeoutError, json.JSONDecodeError, ValueError) as exc:
+        logger.warning("Exa search failed: %s", exc)
         return []
 
     raw_results = data.get("results") if isinstance(data, dict) else None
     if not isinstance(raw_results, list):
+        logger.info("Exa search returned no results")
         return []
 
     results: list[ExaSearchResult] = []
@@ -79,6 +84,8 @@ def exa_search(query: str, *, num_results: int = 3) -> list[ExaSearchResult]:
         parsed = parse_exa_result(item)
         if parsed:
             results.append(parsed)
+
+    logger.info("Exa search returned %d result(s)", len(results))
     return results
 
 

@@ -21,7 +21,10 @@ from pydantic import (
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from automation.payload.constants import DEFAULT_COPYWRITER_CHAIN, DEFAULT_OPENCODE_CHAIN
+from automation.payload.constants import (
+    DEFAULT_COPYWRITER_CHAIN,
+    DEFAULT_OPENCODE_CHAIN,
+)
 
 
 class AgentError(RuntimeError):
@@ -98,7 +101,7 @@ class BotSettings(StrictModel):
 class RuntimeEnvironment(BaseSettings):
     model_config = SettingsConfigDict(
         strict=True,
-        extra='forbid',
+        extra="forbid",
         validate_assignment=True,
     )
 
@@ -169,7 +172,9 @@ class RuntimeEnvironment(BaseSettings):
         if not 16 <= len(value) <= 256:
             raise ValueError("must contain between 16 and 256 characters")
         if not re.fullmatch(r"[A-Za-z0-9_-]+", value):
-            raise ValueError("may contain only letters, numbers, underscore, and hyphen")
+            raise ValueError(
+                "may contain only letters, numbers, underscore, and hyphen"
+            )
         return value
 
     @field_validator("media_group_delay_seconds", "bulk_command_ttl_seconds")
@@ -255,7 +260,7 @@ class NormalizedPayload(StrictModel):
     nomor_kontak: StrictStr | None = None
     situs_kontak: StrictStr | None = None
     social_media: list[dict[StrictStr, StrictStr]] | None = None
-    source: StrictStr | None = None
+    source: StrictStr | None = None  # featured_image
 
 
 class BuildResult(StrictModel):
@@ -265,6 +270,9 @@ class BuildResult(StrictModel):
     model_name: StrictStr | None = None
     http_status: StrictInt | None = None
     wordpress: dict[StrictStr, Any] | None = None
+    exa_enriched: StrictBool = False
+    exa_result_count: StrictInt = 0
+    qr_redirects: list[dict[StrictStr, Any]] = Field(default_factory=list)
 
 
 class OpenCodeProbeAttemptResult(StrictModel):

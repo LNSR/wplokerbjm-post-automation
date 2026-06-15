@@ -25,26 +25,49 @@ def ai_client() -> genai.Client:
     return genai.Client(api_key=api_key)
 
 
+def _inject_qr_and_exa(
+    prompt_parts: list[Any],
+    image_path: Path,
+) -> tuple[bool, int, list[dict[str, Any]]]:
+    """Add QR context and Exa web enrichment to prompt parts.
+
+    Returns (exa_enriched, exa_result_count, qr_redirects).
+    """
+    qr_context, qr_redirects = qr_context_text(image_path)
+    if qr_context:
+        prompt_parts.append(f"<decoded_qr_codes>\n{qr_context}\n</decoded_qr_codes>")
+    web_context = exa_context_text(qr_context)
+    exa_count = 0
+    if web_context:
+        prompt_parts.append(f"<web_search_context>\n{web_context}\n</web_search_context>")
+        # Estimate result count from "WEB SEARCH CONTEXT (EXA)" lines
+        exa_count = sum(
+            1 for line in web_context.split("\n")
+            if line.strip().startswith(("1.", "2.", "3.", "4.", "5."))
+        )
+    return bool(web_context), exa_count, qr_redirects
+
+
 def extract_payload_with_gemini(
     image_path: Path,
     options: dict[str, Any],
     *,
     model: str | None = None,
     custom_instruction: str | None = None,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Return (payload, enrichment) where enrichment holds exa_used, exa_count, qr_redirects."""
     client = ai_client()
-    qr_context = qr_context_text(image_path)
     prompt_parts: list[Any] = [
         types.Part.from_bytes(
             data=image_path.read_bytes(),
             mime_type=image_mime_type(image_path),
         ),
     ]
-    if qr_context:
-        prompt_parts.append(f"<decoded_qr_codes>\n{qr_context}\n</decoded_qr_codes>")
-    web_context = exa_context_text(qr_context)
-    if web_context:
-        prompt_parts.append(f"<web_search_context>\n{web_context}\n</web_search_context>")
+    enrichment: dict[str, Any] = {}
+    exa_used, exa_count, qr_redirects = _inject_qr_and_exa(prompt_parts, image_path)
+    enrichment["exa_used"] = exa_used
+    enrichment["exa_count"] = exa_count
+    enrichment["qr_redirects"] = qr_redirects
     prompt_parts.append(build_prompt(options, custom_instruction))
 
     try:
@@ -67,7 +90,7 @@ def extract_payload_with_gemini(
     parsed = json.loads(response.text)
     if not isinstance(parsed, dict):
         raise AgentError("AI extraction did not return a JSON object.")
-    return parsed
+    return parsed, enrichment
 
 
 def extract_facts_with_gemini(
@@ -76,20 +99,20 @@ def extract_facts_with_gemini(
     *,
     model: str | None = None,
     custom_instruction: str | None = None,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Return (raw_facts, enrichment) where enrichment holds exa_used, exa_count, qr_redirects."""
     client = ai_client()
-    qr_context = qr_context_text(image_path)
     prompt_parts: list[Any] = [
         types.Part.from_bytes(
             data=image_path.read_bytes(),
             mime_type=image_mime_type(image_path),
         ),
     ]
-    if qr_context:
-        prompt_parts.append(f"<decoded_qr_codes>\n{qr_context}\n</decoded_qr_codes>")
-    web_context = exa_context_text(qr_context)
-    if web_context:
-        prompt_parts.append(f"<web_search_context>\n{web_context}\n</web_search_context>")
+    enrichment: dict[str, Any] = {}
+    exa_used, exa_count, qr_redirects = _inject_qr_and_exa(prompt_parts, image_path)
+    enrichment["exa_used"] = exa_used
+    enrichment["exa_count"] = exa_count
+    enrichment["qr_redirects"] = qr_redirects
     prompt_parts.append(build_raw_facts_prompt(options, custom_instruction))
 
     try:
@@ -112,4 +135,4 @@ def extract_facts_with_gemini(
     parsed = json.loads(response.text)
     if not isinstance(parsed, dict):
         raise AgentError("AI fact extraction did not return a JSON object.")
-    return parsed
+    return parsed, enrichment

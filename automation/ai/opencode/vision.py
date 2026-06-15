@@ -28,7 +28,7 @@ Your previous response violated the JSON contract:
 Return the same flyer extraction again, but use only the exact allowed snake_case keys from the system contract.
 """
 
-    qr_context = qr_context_text(image_path)
+    qr_context, _qr_redirects = qr_context_text(image_path)
     web_context = exa_context_text(qr_context)
     qr_section = f"""
 

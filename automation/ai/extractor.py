@@ -75,17 +75,19 @@ def extract_payload_from_image(
     model: str | None = None,
     custom_instruction: str | None = None,
     fallback_chain: str | None = None,
-) -> tuple[dict[str, Any], str]:
-    """Return (payload, resolved_model_name).
+) -> tuple[dict[str, Any], str, dict[str, Any]]:
+    """Return (payload, resolved_model_name, enrichment).
 
     resolved_model_name shows both stages, e.g.
     ``"gemini:gemini-2.5-flash → copywriter:zen/mimo-v2.5-free"`` or
     ``"gemini:gemini-2.5-flash → opencode:go/kimi-k2.6 → copywriter:zen/mimo-v2.5-free"``.
+
+    enrichment holds exa_used, exa_count, qr_redirects from the extraction pipeline.
     """
     if not image_path.is_file():
         raise AgentError(f"Image file not found: {image_path}")
 
-    raw_facts, facts_model = extract_raw_facts_from_image(
+    raw_facts, facts_model, enrichment = extract_raw_facts_from_image(
         image_path,
         options,
         model=model,
@@ -97,7 +99,7 @@ def extract_payload_from_image(
         options,
         custom_instruction=custom_instruction,
     )
-    return payload, f"{facts_model} → copywriter:{copywriter_model}"
+    return payload, f"{facts_model} → copywriter:{copywriter_model}", enrichment
 
 
 def extract_raw_facts_from_image(
@@ -107,22 +109,21 @@ def extract_raw_facts_from_image(
     model: str | None = None,
     custom_instruction: str | None = None,
     fallback_chain: str | None = None,
-) -> tuple[dict[str, Any], str]:
+) -> tuple[dict[str, Any], str, dict[str, Any]]:
+    """Return (raw_facts, model_name, enrichment)."""
     errors: list[str] = []
     gemini_model_name = model or os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL)
     gemini_prefix: str | None = None
 
     if os.getenv("AI_PROVIDER", "gemini").lower() != "opencode":
         try:
-            return (
-                extract_facts_with_gemini(
-                    image_path,
-                    options,
-                    model=model,
-                    custom_instruction=custom_instruction,
-                ),
-                f"gemini:{gemini_model_name}",
+            raw_facts, enrichment = extract_facts_with_gemini(
+                image_path,
+                options,
+                model=model,
+                custom_instruction=custom_instruction,
             )
+            return raw_facts, f"gemini:{gemini_model_name}", enrichment
         except AgentError as error:
             errors.append(f"gemini facts primary: {error}")
             gemini_prefix = f"gemini:{gemini_model_name} → "
@@ -136,7 +137,7 @@ def extract_raw_facts_from_image(
                 custom_instruction=custom_instruction,
             )
             resolved = f"{gemini_prefix or ''}opencode:{attempt.provider}/{attempt.model}"
-            return raw_facts, resolved
+            return raw_facts, resolved, {"exa_used": False, "exa_count": 0, "qr_redirects": []}
         except AgentError as error:
             errors.append(f"{attempt.provider}/{attempt.model} direct image: {error}")
 

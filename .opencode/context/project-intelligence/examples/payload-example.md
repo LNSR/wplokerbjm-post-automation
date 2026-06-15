@@ -39,7 +39,7 @@ After AI extracts data from a flyer and `normalize_payload()` validates it, this
   "benefit": "<ul><li>BPJS Kesehatan</li><li>Tunjangan makan</li></ul>",
   "email_kontak": "hrd@contoh.com",
   "nomor_kontak": "+6281234567890",
-  "social_media": [{"Instagram": "contoh_sejahtera"}],
+  "social_media": [{ "Instagram": "contoh_sejahtera" }],
   "source": "flyers/flyer-001.jpg"
 }
 ```
