@@ -84,9 +84,9 @@ def normalize_taxonomy_value(
     if value in (None, "", []):
         return None
 
-    taxonomies = (
-        options.get("taxonomies") if isinstance(options.get("taxonomies"), dict) else {}
-    )
+    taxonomies = options.get("taxonomies")
+    if not isinstance(taxonomies, dict):
+        taxonomies = {}
     terms = taxonomies.get(taxonomy)
     if not isinstance(terms, list) or not terms:
         warnings.append(f"Omitted {taxonomy}: backend has no available terms.")

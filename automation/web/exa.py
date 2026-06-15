@@ -93,7 +93,9 @@ def parse_exa_result(item: Any) -> ExaSearchResult | None:
     if not isinstance(item, dict):
         return None
 
-    page = item.get("page") if isinstance(item.get("page"), dict) else item
+    page = item.get("page")
+    if not isinstance(page, dict):
+        page = item
     url = str(page.get("url") or item.get("url") or "").strip()
     if not url:
         return None

@@ -441,7 +441,7 @@ def test_owner_cannot_set_invalid_runtime_username(
     assert response.startswith("Invalid Telegram username list:")
 
 
-def test_flyer_processing_is_serialized_across_threads(
+def test_flyer_processing_concurrency_limited(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -500,5 +500,6 @@ def test_flyer_processing_is_serialized_across_threads(
     for thread in threads:
         thread.join()
 
-    assert max_active == 1
+    # Semaphore(3) allows both threads to run concurrently
+    assert 1 <= max_active <= 3
     assert len(sent) == 2

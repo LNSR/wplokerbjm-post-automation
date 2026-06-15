@@ -123,7 +123,9 @@ def build_copywriter_prompt(
     options: dict[str, Any],
     custom_instruction: str | None = None,
 ) -> str:
-    taxonomies = options.get("taxonomies") if isinstance(options.get("taxonomies"), dict) else {}
+    taxonomies = options.get("taxonomies")
+    if not isinstance(taxonomies, dict):
+        taxonomies = {}
     allowed = {
         name: [term.get("name") for term in terms if isinstance(term, dict) and term.get("name")]
         for name, terms in taxonomies.items()
@@ -180,7 +182,9 @@ def build_prompt(
     options: dict[str, Any],
     custom_instruction: str | None = None,
 ) -> str:
-    taxonomies = options.get("taxonomies") if isinstance(options.get("taxonomies"), dict) else {}
+    taxonomies = options.get("taxonomies")
+    if not isinstance(taxonomies, dict):
+        taxonomies = {}
     allowed = {
         name: [term.get("name") for term in terms if isinstance(term, dict) and term.get("name")]
         for name, terms in taxonomies.items()

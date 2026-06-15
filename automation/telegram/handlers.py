@@ -7,7 +7,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from automation.ai.opencode.probe import probe_opencode
+from automation.ai.opencode.probe import probe_opencode_simple
 from automation.config import BOT_SETTINGS, env_float
 from automation.main import build_result
 from automation.models import (
@@ -41,12 +41,9 @@ from automation.telegram.state import (
 from automation.wordpress.auth import request_graphql_jwt
 
 
-MEDIA_GROUP_DELAY_SECONDS = float(
-    env_float("TELEGRAM_MEDIA_GROUP_DELAY_SECONDS", "2")
-)
-BULK_COMMAND_TTL_SECONDS = float(
-    env_float("TELEGRAM_BULK_COMMAND_TTL_SECONDS", "90")
-)
+MEDIA_GROUP_DELAY_SECONDS = float(env_float("TELEGRAM_MEDIA_GROUP_DELAY_SECONDS", "2"))
+BULK_COMMAND_TTL_SECONDS = float(env_float("TELEGRAM_BULK_COMMAND_TTL_SECONDS", "90"))
+FLYER_MAX_CONCURRENT = int(env_float("FLYER_MAX_CONCURRENT", "3"))
 _MEDIA_GROUP_LOCK = threading.Lock()
 _MEDIA_GROUPS: dict[str, TelegramMediaGroupState] = {}
 _MEDIA_GROUP_TIMERS: dict[str, threading.Timer] = {}
@@ -54,7 +51,7 @@ _BULK_COMMANDS = BulkCommandStore(ttl_seconds=BULK_COMMAND_TTL_SECONDS)
 _PROCESSED_MESSAGES = ProcessedMessageStore(ttl_seconds=120.0)
 _MODEL_PREFERENCES = ModelPreferenceStore()
 _FALLBACK_CHAINS = FallbackChainStore()
-_FLYER_PROCESSING_LOCK = threading.Lock()
+_FLYER_PROCESSING_SEMAPHORE = threading.Semaphore(FLYER_MAX_CONCURRENT)
 MAX_CUSTOM_INSTRUCTION_LENGTH = 2000
 
 
@@ -187,8 +184,7 @@ def handle_command(
 
     if command in {Command.START, Command.HELP}:
         models_list = ", ".join(
-            f"{alias}={name}"
-            for alias, name in AVAILABLE_GEMINI_MODELS.items()
+            f"{alias}={name}" for alias, name in AVAILABLE_GEMINI_MODELS.items()
         )
         return (
             "WPLokerBJM bot commands:\n"
@@ -224,10 +220,7 @@ def handle_command(
                 "WP_LOGIN_PASSWORD in the deployment environment."
             )
         BOT_SETTINGS.jwt = request_graphql_jwt()
-        return (
-            "JWT refreshed from GraphQL and stored for this running "
-            "bot instance."
-        )
+        return "JWT refreshed from GraphQL and stored for this running " "bot instance."
 
     if command is Command.RESET_SKILL:
         BOT_SETTINGS.skill_markdown = None
@@ -258,8 +251,7 @@ def handle_command(
         if not BOT_SETTINGS.extra_telegram_usernames:
             return "No extra Telegram users configured."
         formatted = ", ".join(
-            f"@{username}"
-            for username in BOT_SETTINGS.extra_telegram_usernames
+            f"@{username}" for username in BOT_SETTINGS.extra_telegram_usernames
         )
         return f"Runtime extra Telegram users now allowed: {formatted}."
 
@@ -271,16 +263,13 @@ def handle_command(
             return "Usage: /rm_users @username1 [@username2]"
         try:
             requested = {
-                normalize_telegram_username(username)
-                for username in usernames
+                normalize_telegram_username(username) for username in usernames
             }
         except ValueError as error:
             return f"Invalid Telegram username list: {error}"
 
         existing = BOT_SETTINGS.extra_telegram_usernames
-        removed = [
-            username for username in existing if username in requested
-        ]
+        removed = [username for username in existing if username in requested]
         BOT_SETTINGS.extra_telegram_usernames = [
             username for username in existing if username not in requested
         ]
@@ -301,7 +290,11 @@ def handle_command(
                 "Available AI models (use /set_model <alias>):",
             ]
             for alias, name in AVAILABLE_GEMINI_MODELS.items():
-                marker = " ← active" if _MODEL_PREFERENCES.get_model(chat_id) == alias else ""
+                marker = (
+                    " ← active"
+                    if _MODEL_PREFERENCES.get_model(chat_id) == alias
+                    else ""
+                )
                 lines.append(f"  {alias}  → {name}{marker}")
             lines.append("  default  → environment / fallback")
             return "\n".join(lines)
@@ -315,13 +308,13 @@ def handle_command(
 
         if rest not in AVAILABLE_GEMINI_MODELS:
             return (
-                f"Unknown model alias \"{rest}\". "
+                f'Unknown model alias "{rest}". '
                 f"Use /set_model to list available models."
             )
 
         _MODEL_PREFERENCES.set_model(chat_id, rest)
         return (
-            f"AI model set to \"{rest}\" "
+            f'AI model set to "{rest}" '
             f"({AVAILABLE_GEMINI_MODELS[rest]}).\n"
             "The change applies to the next flyer you send."
         )
@@ -330,7 +323,7 @@ def handle_command(
         alias = _MODEL_PREFERENCES.get_model(chat_id)
         if alias:
             return (
-                f"Active AI model: \"{alias}\" "
+                f'Active AI model: "{alias}" '
                 f"({AVAILABLE_GEMINI_MODELS[alias]}).\n"
                 "Send /set_model to change or choose a different model."
             )
@@ -386,50 +379,47 @@ def handle_command(
                 f"  {chain}\n"
                 "Send /set_fallback_model to change or clear."
             )
-        env_chain = os.getenv("OPENCODE_MODEL_CHAIN") or "DEFAULT_OPENCODE_CHAIN (default)"
+        opencode_chain_model = (
+            os.getenv("OPENCODE_MODEL_CHAIN") or "DEFAULT_OPENCODE_CHAIN (default)"
+        )
         return (
             f"No per-chat fallback chain set. "
-            f"Using environment / fallback: {env_chain}.\n"
+            f"Using environment / fallback: {opencode_chain_model}.\n"
             "Send /set_fallback_model to set a custom chain."
         )
 
     if command is Command.STATUS:
         _, skill_source = load_skill_markdown()
-        opencode_status = probe_opencode()
         wordpress_domain = (
             BOT_SETTINGS.wordpress_base_url
             or os.getenv("WPLBJM_API_BASE_URL_PROD")
             or "fallback missing"
         )
-        opencode_json = json.dumps(
-            opencode_status.model_dump(exclude_none=True),
-            ensure_ascii=False,
-        )
         allowed_users = ", ".join(
-            f"@{username}"
-            for username in sorted(allowed_telegram_usernames())
+            f"@{username}" for username in sorted(allowed_telegram_usernames())
         )
         model_alias = _MODEL_PREFERENCES.get_model(chat_id)
         model_line = (
-            f"AI model: \"{model_alias}\" ({AVAILABLE_GEMINI_MODELS[model_alias]})"
+            f'AI model: "{model_alias}" ({AVAILABLE_GEMINI_MODELS[model_alias]})'
             if model_alias
             else "AI model: environment / fallback"
         )
-        fallback_chain = _FALLBACK_CHAINS.get_chain(chat_id)
-        fallback_line = (
-            f"Fallback chain: {fallback_chain}"
-            if fallback_chain
-            else "Fallback chain: environment / fallback"
+        chat_chain = _FALLBACK_CHAINS.get_chain(chat_id)
+        probe = probe_opencode_simple()
+        opencode_chain_model = probe["chain"]
+        chain_line = (
+            f"opencode_chain_model {opencode_chain_model}"
+            if not chat_chain
+            else f"Chat chain: {chat_chain}\nopencode_chain_model {opencode_chain_model}"
         )
         return (
             "Current runtime settings:\n"
             f"WordPress domain: {wordpress_domain}\n"
-            f"JWT: {'runtime set' if BOT_SETTINGS.jwt else 'env fallback'}\n"
-            f"Skill: {skill_source}\n"
-            + model_line + "\n"
-            + fallback_line + "\n"
+            f"JWT: {'runtime set' if BOT_SETTINGS.jwt else probe['jwt']}\n"
+            f"Skill: {skill_source}\n" + model_line + "\n" + chain_line + "\n"
             f"Allowed Telegram users: {allowed_users}\n"
-            f"OpenCode: {opencode_json}"
+            f"OpenCode key: {probe['opencode_key']}\n"
+            f"Gemini key: {probe['gemini_key']}"
         )
 
     return "Unknown command. Send /help for options."
@@ -452,9 +442,10 @@ def process_flyer_message(
 
     image_path = download_telegram_file(file_id)
     try:
-        # Keep flyer extraction serialized so webhook and media-group threads
-        # do not race through the same provider quota window.
-        with _FLYER_PROCESSING_LOCK:
+        # Limit concurrent flyer extractions so we stay within provider
+        # quota windows. Semaphore allows up to FLYER_MAX_CONCURRENT (3)
+        # simultaneous calls for bulk upload throughput.
+        with _FLYER_PROCESSING_SEMAPHORE:
             # Double-check: Telegram webhook may have retried this same
             # update while we were waiting for the lock.  Skip silently
             # when another thread already handled it.
@@ -466,9 +457,7 @@ def process_flyer_message(
 
             model_alias = _MODEL_PREFERENCES.get_model(chat_id)
             model_name = (
-                AVAILABLE_GEMINI_MODELS.get(model_alias)
-                if model_alias
-                else None
+                AVAILABLE_GEMINI_MODELS.get(model_alias) if model_alias else None
             )
             result = build_result(
                 image_path,
@@ -514,8 +503,7 @@ def queue_media_group_message(
 
         message_id = message.get("message_id")
         is_new_message = message_id is None or all(
-            item.get("message_id") != message_id
-            for item in state.messages
+            item.get("message_id") != message_id for item in state.messages
         )
         if is_new_message:
             state.messages.append(message)
@@ -552,9 +540,7 @@ def flush_media_group(key: str) -> None:
 
     if directive is not None:
         instruction_note = (
-            " Custom instruction applied."
-            if directive.instruction
-            else ""
+            " Custom instruction applied." if directive.instruction else ""
         )
         telegram_send_message(
             state.chat_id,
@@ -564,8 +550,7 @@ def flush_media_group(key: str) -> None:
     else:
         telegram_send_message(
             state.chat_id,
-            f"Processing {len(messages)} media group item(s) as mock "
-            "preview.",
+            f"Processing {len(messages)} media group item(s) as mock " "preview.",
         )
 
     for message in messages:

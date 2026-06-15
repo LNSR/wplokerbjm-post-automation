@@ -13,7 +13,6 @@ from automation.models import (
     RuntimeEnvironment,
     validation_error_summary,
 )
-from automation.payload.constants import DEFAULT_COPYWRITER_CHAIN, DEFAULT_OPENCODE_CHAIN
 
 
 BOT_SETTINGS = BotSettings(
@@ -142,14 +141,14 @@ def validate_runtime_environment(
             try:
                 os.environ.clear()
                 os.environ.update(environ)
-                settings = RuntimeEnvironment()
+                settings = RuntimeEnvironment()  # type: ignore
             finally:
                 # Restore original environment
                 os.environ.clear()
                 os.environ.update(original_environ)
         else:
             # Production: read from os.environ directly
-            settings = RuntimeEnvironment()
+            settings = RuntimeEnvironment()  # type: ignore
     except ValidationError as error:
         errors.append(validation_error_summary(error))
 

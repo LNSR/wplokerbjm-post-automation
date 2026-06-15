@@ -40,7 +40,9 @@ def authorize_update(update: dict[str, Any]) -> tuple[bool, dict[str, Any] | Non
     message = update.get("message")
     if not isinstance(message, dict):
         return False, None, None
-    chat = message.get("chat") if isinstance(message.get("chat"), dict) else {}
+    chat = message.get("chat")
+    if not isinstance(chat, dict):
+        chat = {}
     chat_id = chat.get("id")
     username = telegram_sender_username(update)
     return username in allowed_telegram_usernames(), message, chat_id

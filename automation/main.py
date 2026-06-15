@@ -77,7 +77,7 @@ def main(argv: list[str] | None = None) -> int:
         "--model",
         default=None,
         help=(
-            "AI model override. Use model, provider:model, or "
+            "AI model override. Use provider:model or "
             "provider:model:endpoint_style. "
             f"Default chain: {DEFAULT_OPENCODE_CHAIN}."
         ),

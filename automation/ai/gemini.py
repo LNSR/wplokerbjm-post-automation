@@ -41,47 +41,6 @@ def _build_prompt_parts(
         prompt_parts.append(f"<web_search_context>\n{web_context_text_value}\n</web_search_context>")
     return prompt_parts
 
-
-def extract_payload_with_gemini(
-    image_path: Path,
-    options: dict[str, Any],
-    qr_context_text_value: str = "",
-    web_context_text_value: str = "",
-    *,
-    model: str | None = None,
-    custom_instruction: str | None = None,
-) -> dict[str, Any]:
-    """Return payload using Gemini single-stage extraction.
-
-    QR and web context are injected by the caller (extractor), not extracted here.
-    """
-    client = ai_client()
-    prompt_parts = _build_prompt_parts(image_path, qr_context_text_value, web_context_text_value)
-    prompt_parts.append(build_prompt(options, custom_instruction))
-
-    try:
-        response = client.models.generate_content(
-            model=model or os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL),
-            contents=prompt_parts,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=extraction_schema(),
-            ),
-        )
-    except genai_errors.APIError as error:
-        raise AgentError(f"AI extraction failed: {error}") from error
-    except RuntimeError as error:
-        raise AgentError(f"AI extraction failed: {error}") from error
-
-    if not response.text:
-        raise AgentError("AI extraction returned an empty response.")
-
-    parsed = json.loads(response.text)
-    if not isinstance(parsed, dict):
-        raise AgentError("AI extraction did not return a JSON object.")
-    return parsed
-
-
 def extract_facts_with_gemini(
     image_path: Path,
     options: dict[str, Any],

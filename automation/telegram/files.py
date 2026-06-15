@@ -14,7 +14,9 @@ from automation.telegram.client import telegram_api
 
 def telegram_file_path(file_id: str) -> str:
     data = telegram_api("getFile", {"file_id": file_id})
-    result = data.get("result") if isinstance(data.get("result"), dict) else {}
+    result = data.get("result")
+    if not isinstance(result, dict):
+        result = {}
     file_path = result.get("file_path")
     if not file_path:
         raise AgentError("Telegram did not return a file_path.")
