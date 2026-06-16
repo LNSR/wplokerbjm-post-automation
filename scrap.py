@@ -39,16 +39,17 @@ class ProfileError(ScraperError):
 # ---------------------------------------------------------------------------
 
 
-class Settings(BaseSettings, frozen=True):
+class Settings(BaseSettings):
     """Strictly typed environment configuration."""
 
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
+        frozen=True,
     )
 
-    account_name: str
-    target_username: str
+    account_name: str = ""
+    target_username: str = ""
 
     @model_validator(mode="before")
     @classmethod
@@ -201,6 +202,10 @@ class ScraperService:
         """Fetch and validate a public Instagram profile."""
         try:
             profile = instaloader.Profile.from_username(self._session.context, username)
+            if profile.is_private:
+                raise ProfileError(
+                    f"The profile '{username}' is private. Cannot access posts."
+                )
         except instaloader.exceptions.ProfileNotExistsException:
             raise ProfileError(f"The profile '{username}' does not exist.")
         except instaloader.exceptions.QueryReturnedBadRequestException:
@@ -208,11 +213,6 @@ class ScraperService:
                 "Instagram returned a 400 Bad Request. "
                 "Your session cookie may be blocked or needs browser verification. "
                 "Try waiting a while or re-login to refresh the session cookie."
-            )
-
-        if profile.is_private:
-            raise ProfileError(
-                f"The profile '{username}' is private. Cannot access posts."
             )
 
         return profile

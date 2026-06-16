@@ -165,12 +165,12 @@ source
 Important posting constraints:
 
 - `title` is required.
-- `featured_image` is required.
-- `status_pekerjaan` defaults to `0` unless source/user clearly says urgent or pinned.
 - `title` must include the suffix ` | AI posted draft` for every automated
   draft. Keep the human-readable job/company title before the suffix.
-- `gender` defaults to `Pria/Wanita` when gender is not shown on the flyer; this
-  intentionally checks both gender taxonomy terms for universal roles.
+  Title Case and gender rules follow the `job-copywriter` skill contract.
+- `featured_image` is required.
+- `status_pekerjaan` follows the `job-copywriter` skill contract: defaults
+  to `0` unless deadline ≤ 14 days, then `2` (Urgent).
 - `perusahaan` taxonomy is reserved for manual review and must not be treated as assigned.
 - Unknown controlled taxonomy terms should be omitted or expected as backend warnings.
 

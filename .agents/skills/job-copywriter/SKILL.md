@@ -138,10 +138,11 @@ Clone/storage note:
 `title`
 
 - Job title.
+- Use Title Case: capitalize the first letter of each word.
+  Example: `Staff Administrasi`, not `staff administrasi`.
+  Known acronyms (AI, PT, CV, IT, etc.) should remain uppercase.
 - Use a short, searchable title.
 - Multiple positions: join with `&`.
-- For automated AI draft posting, append ` | AI posted draft` to the final
-  post title so human reviewers can distinguish generated drafts.
 - Example: `Barista & Kitchen`.
 
 `nama_perusahaan`
@@ -232,7 +233,8 @@ Typed fields must contain raw machine-friendly values.
   - `2` = Urgent 
   - `3` = Pinned
 - Default to `0`.
-  - When less than 14 days left set to `2` unless the source says otherwise.
+- If `deadline` is set and remaining days ≤ 14 from today, set to `2`
+  (Urgent) unless the source explicitly says otherwise.
   
 
 ### WYSIWYG Fields

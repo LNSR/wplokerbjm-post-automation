@@ -144,7 +144,7 @@ def probe_opencode_simple() -> dict[str, str]:
     """Instant env-var check — no HTTP calls. Safe for Telegram /status, Render free has timeout limit for free tier"""
     api_key = opencode_api_key("go")
     gemini_key = os.getenv("GOOGLE_AI_STUDIO_KEY")
-    jwt = os.getenv("WPLBJM_API_JWT_TOKEN")
+    jwt = os.getenv("WPLBJM_JWT_PROD")
     chain = os.getenv("OPENCODE_MODEL_CHAIN", DEFAULT_OPENCODE_CHAIN)
     return {
         "opencode_key": "present" if api_key else "missing",

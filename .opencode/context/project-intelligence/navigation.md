@@ -1,4 +1,4 @@
-<!-- Context: project-intelligence/navigation | Priority: critical | Version: 1.0 | Updated: 2026-06-15 -->
+<!-- Context: project-intelligence/navigation | Priority: critical | Version: 1.1 | Updated: 2026-06-17 -->
 
 # Project Intelligence Navigation
 
@@ -12,6 +12,7 @@
 project-intelligence/
 ├── navigation.md
 ├── concepts/               # Core ideas & definitions
+│   ├── technical-domain.md
 │   └── wordpress-schema.md
 ├── guides/                 # Step-by-step workflows
 │   └── automation-workflows.md
@@ -29,6 +30,7 @@ project-intelligence/
 
 | Task | Path |
 |------|------|
+| **Understand tech stack, TDD patterns, strict typing** | `concepts/technical-domain.md` |
 | **Understand WordPress CPT & MetaBox fields** | `concepts/wordpress-schema.md` |
 | **Run end-to-end flyer → Telegram → WordPress** | `guides/automation-workflows.md` |
 | **Find REST/GraphQL endpoint details** | `lookup/api-contracts.md` |
@@ -40,6 +42,7 @@ project-intelligence/
 ## By Priority
 
 **Critical** (load first):
+- `concepts/technical-domain.md` — Tech stack, strict typing, TDD patterns, naming conventions
 - `concepts/wordpress-schema.md` — Core data model, taxonomies, field types
 - `guides/automation-workflows.md` — End-to-end pipeline from flyer to WordPress
 - `lookup/api-contracts.md` — REST endpoints, GraphQL mutations, JWT auth
@@ -53,11 +56,12 @@ project-intelligence/
 ## Loading Strategy
 
 **For automation work**:
-1. Load `concepts/wordpress-schema.md` — understand the data model
-2. Load `lookup/api-contracts.md` — know the endpoints
-3. Load `guides/automation-workflows.md` — follow the pipeline
-4. Reference `examples/payload-example.md` — confirm payload shape
-5. Check `errors/common-errors.md` — if anything fails
+1. Load `concepts/technical-domain.md` — understand tech stack, strict typing, TDD rules
+2. Load `concepts/wordpress-schema.md` — understand the data model
+3. Load `lookup/api-contracts.md` — know the endpoints
+4. Load `guides/automation-workflows.md` — follow the pipeline
+5. Reference `examples/payload-example.md` — confirm payload shape
+6. Check `errors/common-errors.md` — if anything fails
 
 **For debugging issues**:
 1. Load `errors/common-errors.md` — match symptom to solution

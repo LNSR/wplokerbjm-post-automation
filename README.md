@@ -348,13 +348,13 @@ Show the current model without changing it:
 
 Available aliases and their corresponding API model names:
 
-| Alias | Gemini Model |
-|-------|-------------|
-| `flash` | `gemini-2.5-flash` |
+| Alias        | Gemini Model            |
+| ------------ | ----------------------- |
+| `flash`      | `gemini-2.5-flash`      |
 | `flash-lite` | `gemini-2.5-flash-lite` |
-| `gemini-3.5` | `gemini-3.5-flash` |
+| `gemini-3.5` | `gemini-3.5-flash`      |
 
-Reset to the environment default (`GEMINI_MODEL` env var or `gemini-2.5-flash`):
+Reset to the environment default (`GEMINI_MODEL` env var or `gemini-3.5-flash`):
 
 ```text
 /set_model default
@@ -387,6 +387,7 @@ and restore the env/repository fallback.
 
   The instruction can guide emphasis and extraction, but cannot override the
   WordPress payload contract, visible-evidence rules, or taxonomy restrictions.
+
 - Images sent as Telegram photos.
 - When sending a Telegram media group/album, put `/post_prod` and any custom
   instruction on one item. The bot waits briefly for the album and applies the

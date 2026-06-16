@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from datetime import date as real_date
+
 import pytest
+from unittest.mock import MagicMock, patch
 
 from automation.models import AgentError, NormalizedPayload
-from automation.payload.normalize import normalize_payload
+from automation.payload.normalize import normalize_payload, normalize_title_case
 
 
 OPTIONS = {
@@ -161,3 +164,108 @@ def test_normalized_payload_strict_integer_rejects_string() -> None:
                 "status_pekerjaan": "0",
             }
         )
+
+
+# ── Title Case ──────────────────────────────────────────────────────────
+
+
+def test_normalize_title_case_lowercase() -> None:
+    assert normalize_title_case("staff administrasi") == "Staff Administrasi"
+
+
+def test_normalize_title_case_preserves_acronyms() -> None:
+    assert normalize_title_case("AI Engineer PT Maju") == "AI Engineer PT Maju"
+
+
+def test_normalize_title_case_mixed_case() -> None:
+    assert normalize_title_case("MOBILE APP DEVELOPER") == "Mobile App Developer"
+
+
+def test_normalize_title_case_ampersand() -> None:
+    assert normalize_title_case("barista & kitchen") == "Barista & Kitchen"
+
+
+def test_normalize_title_case_with_suffix() -> None:
+    result = normalize_title_case("crew store | example")
+    assert result == "Crew Store | Example"
+
+
+def test_normalize_payload_applies_title_case() -> None:
+    payload, warnings = normalize_payload(
+        {"title": "staff administrasi pt maju jaya"},
+        OPTIONS,
+    )
+    assert payload.title.startswith("Staff Administrasi PT Maju Jaya")
+    assert warnings == []
+
+
+# ── Deadline → status_pekerjaan ─────────────────────────────────────────
+
+
+def test_normalize_payload_deadline_urgent_sets_status_2() -> None:
+    mock_date = MagicMock()
+    mock_date.today.return_value = real_date(2026, 6, 17)
+    mock_date.fromisoformat.side_effect = lambda s: real_date.fromisoformat(s)
+    mock_date.side_effect = lambda *args, **kw: real_date(*args, **kw)
+
+    with patch("automation.payload.normalize.date", mock_date):
+        payload, warnings = normalize_payload(
+            {
+                "title": "Staff",
+                "deadline": "2026-06-25",
+                "status_pekerjaan": 0,
+            },
+            OPTIONS,
+        )
+
+    assert payload.status_pekerjaan == 2
+    assert warnings == []
+
+
+def test_normalize_payload_deadline_far_keeps_status_0() -> None:
+    mock_date = MagicMock()
+    mock_date.today.return_value = real_date(2026, 6, 17)
+    mock_date.fromisoformat.side_effect = lambda s: real_date.fromisoformat(s)
+    mock_date.side_effect = lambda *args, **kw: real_date(*args, **kw)
+
+    with patch("automation.payload.normalize.date", mock_date):
+        payload, warnings = normalize_payload(
+            {
+                "title": "Staff",
+                "deadline": "2026-07-15",
+                "status_pekerjaan": 0,
+            },
+            OPTIONS,
+        )
+
+    assert payload.status_pekerjaan == 0
+    assert warnings == []
+
+
+def test_normalize_payload_deadline_past_keeps_status_0() -> None:
+    mock_date = MagicMock()
+    mock_date.today.return_value = real_date(2026, 6, 17)
+    mock_date.fromisoformat.side_effect = lambda s: real_date.fromisoformat(s)
+    mock_date.side_effect = lambda *args, **kw: real_date(*args, **kw)
+
+    with patch("automation.payload.normalize.date", mock_date):
+        payload, warnings = normalize_payload(
+            {
+                "title": "Staff",
+                "deadline": "2026-06-10",
+                "status_pekerjaan": 0,
+            },
+            OPTIONS,
+        )
+
+    assert payload.status_pekerjaan == 0
+    assert warnings == []
+
+
+def test_normalize_payload_no_deadline_keeps_status_0() -> None:
+    payload, warnings = normalize_payload(
+        {"title": "Staff", "status_pekerjaan": 0},
+        OPTIONS,
+    )
+    assert payload.status_pekerjaan == 0
+    assert warnings == []

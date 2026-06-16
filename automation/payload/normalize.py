@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import re
+from datetime import date
 from typing import Any
 
 from pydantic import ValidationError
@@ -278,6 +279,32 @@ def normalize_scalar(value: Any) -> str:
     return str(value).strip()
 
 
+def normalize_title_case(title: str) -> str:
+    """Convert job title to Title Case, preserving known acronyms.
+
+    Each word is capitalised (first letter uppercase, rest lowercase).
+    Known acronyms (AI, PT, CV, etc.) are kept uppercase regardless of
+    input case.
+    """
+    KNOWN_UPPER: set[str] = {
+        "AI", "PT", "CV", "IT", "HRD",
+        "SD", "SMP", "SMK", "SMA", "MI", "MTs", "MA",
+        "D3", "D4", "S1", "S2", "S3", "SI", "TI",
+    }
+    words = title.split()
+    result: list[str] = []
+    for word in words:
+        clean = word.strip("()[]{}.,;:!?\"'")
+        upper = clean.upper()
+        if upper in KNOWN_UPPER:
+            result.append(upper)
+        elif clean:
+            result.append(clean[:1].upper() + clean[1:].lower())
+        else:
+            result.append(word)
+    return " ".join(result)
+
+
 def normalize_payload(
     payload: dict[str, Any],
     options: dict[str, Any],
@@ -300,12 +327,21 @@ def normalize_payload(
     title = str(normalized.get("title", "")).strip()
     if not title:
         raise AgentError("Extracted payload is missing title.")
-    if not title.endswith(TITLE_SUFFIX):
+    title = normalize_title_case(title)
+    if not title.lower().endswith(TITLE_SUFFIX.lower()):
         title += TITLE_SUFFIX
     normalized["title"] = title
 
     normalized.pop("perusahaan", None)
     normalized["status_pekerjaan"] = int(normalized.get("status_pekerjaan") or 0)
+    _deadline = normalized.get("deadline")
+    if _deadline:
+        try:
+            _dl = date.fromisoformat(str(_deadline))
+            if 0 <= (_dl - date.today()).days <= 14:
+                normalized["status_pekerjaan"] = 2
+        except (ValueError, TypeError):
+            pass
     normalized.setdefault("gender", "Pria/Wanita")
 
     if source:

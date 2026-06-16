@@ -56,7 +56,6 @@ jobs:
       - name: Check CLI entry point
         run: uv run --frozen agent --help
 
-
   deploy:
     needs: test
     if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
@@ -96,12 +95,13 @@ jobs:
           GOOGLE_AI_STUDIO_KEY: ${{ secrets.GOOGLE_AI_STUDIO_KEY }}
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
           AI_PROVIDER: gemini
+          GEMINI_MODEL: gemini-3.5
           OPENCODE_MODEL_CHAIN: go:kimi-k2.6:chat,go:kimi-k2.5:chat,go:mimo-v2.5:chat,go:minimax-m3:messages,go:qwen3.6-plus:messages,go:qwen3.7-plus:messages
           OPENCODE_COPYWRITER_CHAIN: zen:mimo-v2.5-free:chat
           EXA_SEARCH_TYPE: auto
           DISABLE_WEB_ENRICHMENT: ""
           SKILL_MD_PATH: .agents/skills/agent-postdraft/SKILL.md
-          TELEGRAM_MEDIA_GROUP_DELAY_SECONDS: "2"
+          TELEGRAM_MEDIA_GROUP_DELAY_SECONDS: "3"
           TELEGRAM_BULK_COMMAND_TTL_SECONDS: "60"
           PUBLIC_BASE_URL: ""
         run: uv run --frozen python scripts/sync-render-env.py
