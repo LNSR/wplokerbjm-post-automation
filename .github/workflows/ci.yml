@@ -19,7 +19,12 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 'latest'
 
       - name: Install uv and Python
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
@@ -68,7 +73,12 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 'latest'
 
       - name: Install uv and Python
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
@@ -95,7 +105,7 @@ jobs:
           GOOGLE_AI_STUDIO_KEY: ${{ secrets.GOOGLE_AI_STUDIO_KEY }}
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
           AI_PROVIDER: gemini
-          GEMINI_MODEL: gemini-3.5
+          GEMINI_MODEL: gemini-3.6
           OPENCODE_MODEL_CHAIN: go:kimi-k2.6:chat,go:kimi-k2.5:chat,go:mimo-v2.5:chat,go:minimax-m3:messages,go:qwen3.6-plus:messages,go:qwen3.7-plus:messages
           OPENCODE_COPYWRITER_CHAIN: zen:mimo-v2.5-free:chat
           EXA_SEARCH_TYPE: auto

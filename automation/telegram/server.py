@@ -4,6 +4,7 @@ import http.server
 import json
 import os
 import sys
+import traceback
 from typing import Any
 
 from automation.config import load_environment, validate_runtime_environment
@@ -52,10 +53,11 @@ class TelegramWebhookHandler(http.server.BaseHTTPRequestHandler):
             self.send_json(200, {"ok": True})
         except Exception as error:
             print(
-                f"Telegram webhook request failed: {error.__class__.__name__}",
+                f"Telegram webhook request failed: {error!r}",
                 file=sys.stderr,
                 flush=True,
             )
+            traceback.print_exc()
             self.send_json(200, webhook_error_payload(error))
 
     def log_message(self, format: str, *args: Any) -> None:

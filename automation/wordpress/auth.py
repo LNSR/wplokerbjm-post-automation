@@ -70,6 +70,12 @@ mutation GetJWT($username: String, $password: String, $token: String) {
     errors = data.get("errors")
     if errors:
         raise AgentError(f"JWT refresh failed: {errors}")
+
+    if data.get("data", {}).get("jwt") is None:
+        raise AgentError(
+            "JWT refresh failed: login rejected (check WP_LOGIN_USERNAME/"
+            "WP_LOGIN_PASSWORD on the deployment)"
+        )
     raise AgentError("JWT refresh failed: GraphQL did not set jwt-token cookie.")
 
 

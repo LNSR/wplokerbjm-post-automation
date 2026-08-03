@@ -141,14 +141,14 @@ def validate_runtime_environment(
             try:
                 os.environ.clear()
                 os.environ.update(environ)
-                settings = RuntimeEnvironment()  # type: ignore
+                settings = RuntimeEnvironment() 
             finally:
                 # Restore original environment
                 os.environ.clear()
                 os.environ.update(original_environ)
         else:
             # Production: read from os.environ directly
-            settings = RuntimeEnvironment()  # type: ignore
+            settings = RuntimeEnvironment() 
     except ValidationError as error:
         errors.append(validation_error_summary(error))
 

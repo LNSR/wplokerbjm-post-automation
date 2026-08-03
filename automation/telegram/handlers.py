@@ -32,6 +32,7 @@ from automation.telegram.files import (
     first_photo_file_id,
 )
 from automation.payload.constants import AVAILABLE_GEMINI_MODELS
+from automation.web.exa import exa_enabled
 from automation.telegram.state import (
     BulkCommandStore,
     FallbackChainStore,
@@ -126,9 +127,14 @@ def _enrichment_lines(result: BuildResult) -> list[str]:
     if result.exa_enriched:
         lines.append("")
         lines.append(f"Web: Exa {result.exa_result_count} result(s)")
+    elif exa_enabled():
+        lines.append("")
+        lines.append("Web: Exa not used (no QR/web context or zero results)")
     else:
         lines.append("")
-        lines.append("Web: Exa not available")
+        lines.append(
+            "Web: Exa disabled (DISABLE_WEB_ENRICHMENT set or EXA_API_KEY missing)"
+        )
 
     return lines
 
@@ -600,14 +606,15 @@ def handle_telegram_update(update: dict[str, Any]) -> None:
         return
 
     if text.startswith("/") and not first_photo_file_id(message):
-        telegram_send_message(
-            chat_id,
-            handle_command(
+        try:
+            response = handle_command(
                 chat_id,
                 text,
                 is_owner=is_primary_telegram_user(update),
-            ),
-        )
+            )
+        except AgentError as error:
+            response = f"Failed: {error}"
+        telegram_send_message(chat_id, response)
         return
 
     if not first_photo_file_id(message):
