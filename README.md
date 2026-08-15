@@ -68,7 +68,7 @@ automation/
 scripts/
   sync-render-env.py     Pipeline script for syncing Github Secrets to Render ENV
 tests/                   Unit test using pytest
-scrap.py                 one-off script for scraping Instragram
+scrap.py                 one-off script for scraping Instagram (gallery-dl backend)
 ```
 
 The package exposes a console command:
