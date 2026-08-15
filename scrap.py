@@ -1,13 +1,12 @@
-"""Standalone Instagram post scraper script"""
+"""Standalone Instagram post scraper script (gallery-dl backend)."""
 
 import os
-import time
-import random
+import sys
 from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 import dotenv
-import instaloader
+from gallery_dl import config, exception as gallery_exception, job
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
 
@@ -48,8 +47,8 @@ class Settings(BaseSettings):
         frozen=True,
     )
 
-    account_name: str = ""
     target_username: str = ""
+    cookies_file: str = ""
 
     @model_validator(mode="before")
     @classmethod
@@ -60,15 +59,15 @@ class Settings(BaseSettings):
         env_path = data.pop("env_path", ".env")
         dotenv.load_dotenv(env_path)
 
-        account = os.getenv("ACCOUNT_NAME")
         target = os.getenv("TARGET_USERNAME")
 
-        if not account:
-            raise ValueError("ACCOUNT_NAME is required in .env")
         if not target:
             raise ValueError("TARGET_USERNAME is required in .env")
 
-        return {"account_name": account, "target_username": target}
+        return {
+            "target_username": target,
+            "cookies_file": os.getenv("COOKIES_FILE", ""),
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -84,61 +83,43 @@ class DownloadResult(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Instagram Session
+# Gallery-dl session (replaces instaloader)
 # ---------------------------------------------------------------------------
 
+# Image extensions counted as successful downloads (sidecars excluded).
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic", ".avif"}
 
-class InstagramSession:
-    """Wraps Instaloader initialisation and session management."""
 
-    def __init__(self) -> None:
-        self._loader = instaloader.Instaloader(
-            download_comments=False,
-            download_geotags=False,
-            download_videos=False,
-            download_video_thumbnails=False,
-            save_metadata=False,
-            download_pictures=True,
-            compress_json=True,
-        )
+class GallerySession:
+    """Wraps gallery-dl configuration for Instagram downloads."""
 
-    @property
-    def loader(self) -> instaloader.Instaloader:
-        return self._loader
+    def __init__(self, cookies_file: str = "") -> None:
+        config.load()
+        # Project-local safety config (rate limiting, retries, etc.).
+        # Missing file is logged and ignored; defaults above still apply.
+        config.load(["gallery-dl.conf"])
+        config.set(("extractor", "instagram"), "videos", False)
+        config.set(("extractor", "instagram"), "directory", ["downloads", "{username}"])
 
-    @property
-    def context(self):
-        return self._loader.context
-
-    def load_session(self, account_name: str) -> None:
-        """Load an existing Instaloader session from disk."""
-        try:
-            self._loader.load_session_from_file(account_name)
-        except instaloader.exceptions.BadCredentialsException:
-            raise SessionError(
-                f"Invalid credentials for {account_name}. "
-                f"Run 'instaloader --login {account_name}' in terminal "
-                f"to create a new session."
+        if cookies_file:
+            cookies_path = Path(cookies_file).expanduser()
+            if not cookies_path.is_file():
+                raise SessionError(
+                    f"Cookies file not found: {cookies_file}. "
+                    "Export a Netscape-format cookies.txt from your browser "
+                    "(e.g. with the 'Get cookies.txt LOCALLY' extension) and "
+                    "point COOKIES_FILE at it."
+                )
+            config.set(("extractor", "instagram"), "cookies", str(cookies_path))
+        else:
+            print(
+                "Warning: COOKIES_FILE not set. Instagram may require "
+                "authenticated cookies; downloads may fail with an auth error."
             )
 
-
-# ---------------------------------------------------------------------------
-# Rate Limiter
-# ---------------------------------------------------------------------------
-
-
-class RateLimiter:
-    """Randomised delay between requests to avoid rate limiting."""
-
-    def __init__(self, min_seconds: float = 1.0, max_seconds: float = 3.0) -> None:
-        self._min = min_seconds
-        self._max = max_seconds
-
-    def wait(self) -> None:
-        """Sleep for a random interval."""
-        delay = random.uniform(self._min, self._max)
-        print(f"Waiting {delay:.2f} seconds before next download...")
-        time.sleep(delay)
+    @staticmethod
+    def profile_url(username: str) -> str:
+        return f"https://www.instagram.com/{username}/"
 
 
 # ---------------------------------------------------------------------------
@@ -188,66 +169,80 @@ class FileManager:
 
 
 class ScraperService:
-    """Orchestrates profile access and post downloading."""
+    """Orchestrates profile access and post downloading via gallery-dl."""
 
-    def __init__(
-        self,
-        session: InstagramSession,
-        rate_limiter: RateLimiter,
-    ) -> None:
+    def __init__(self, session: GallerySession) -> None:
         self._session = session
-        self._rate_limiter = rate_limiter
 
-    def get_profile(self, username: str) -> instaloader.Profile:
-        """Fetch and validate a public Instagram profile."""
-        try:
-            profile = instaloader.Profile.from_username(self._session.context, username)
-            if profile.is_private:
-                raise ProfileError(
-                    f"The profile '{username}' is private. Cannot access posts."
-                )
-        except instaloader.exceptions.ProfileNotExistsException:
+    def get_profile(self, username: str) -> None:
+        """Probe the profile cheaply and surface auth/not-found errors.
+
+        gallery-dl logs errors internally on DownloadJob, so we use a
+        DataJob limited to one post to capture the real exception.
+        """
+        config.set(("extractor", "instagram"), "max-posts", 1)
+        probe = job.DataJob(GallerySession.profile_url(username))
+        probe.run()
+
+        exc = probe.exception
+        if exc is None:
+            return
+
+        if isinstance(exc, gallery_exception.NotFoundError):
             raise ProfileError(f"The profile '{username}' does not exist.")
-        except instaloader.exceptions.QueryReturnedBadRequestException:
-            raise ProfileError(
-                "Instagram returned a 400 Bad Request. "
-                "Your session cookie may be blocked or needs browser verification. "
-                "Try waiting a while or re-login to refresh the session cookie."
+        if isinstance(exc, (gallery_exception.AuthRequired, gallery_exception.AuthenticationError)):
+            raise SessionError(
+                f"Instagram requires valid cookies to access '{username}'. "
+                "Set COOKIES_FILE to a fresh cookies.txt export from your browser."
             )
-
-        return profile
+        if isinstance(exc, gallery_exception.HttpError):
+            if exc.status == 429:
+                raise ProfileError(
+                    f"Instagram returned 429 Too Many Requests for '{username}'. "
+                    "Wait a while before retrying; the endpoint itself is throttled."
+                )
+            raise ProfileError(
+                f"Instagram returned HTTP {exc.status} for '{username}'. "
+                "Your session cookie may be blocked or needs browser verification. "
+                "Try waiting a while or re-export the cookies file."
+            )
+        raise ProfileError(f"Profile probe failed for '{username}': {exc}")
 
     def download(
         self,
-        profile: instaloader.Profile,
+        username: str,
         target_dir: Path,
         max_images: int,
     ) -> DownloadResult:
         """Download images from profile posts up to max_images."""
-        count = 0
+        config.set(("extractor", "instagram"), "max-posts", max_images)
+        download_job = job.DownloadJob(GallerySession.profile_url(username))
+        status = download_job.run()
 
-        try:
-            for post in profile.get_posts():
-                if post.is_video:
-                    continue
-
-                if self._session.loader.download_post(post, target=target_dir):
-                    count += 1
-                    print(f"Progress: {count}/{max_images} images downloaded.")
-
-                    if count < max_images:
-                        self._rate_limiter.wait()
-
-                if count >= max_images:
-                    break
-
-        except instaloader.exceptions.ConnectionException as cause:
+        if status & 16:  # AuthenticationError / AuthorizationError codes
+            raise SessionError(
+                f"Instagram rejected the session while downloading '{username}'. "
+                "Re-export COOKIES_FILE from your browser (fresh cookies.txt)."
+            )
+        if status & 4:  # ExtractionError (HttpError / NotFoundError)
             raise ScraperError(
-                f"Instagram blocked the request: {cause}. "
-                "Session may have expired or you are being rate-limited."
-            ) from cause
+                f"Instagram failed while downloading '{username}'. "
+                "This is usually a 429 rate limit or a blocked session; "
+                "wait a while and retry with fresh cookies."
+            )
 
-        return DownloadResult(count=count, username=profile.username)
+        count = sum(
+            1
+            for file in target_dir.iterdir()
+            if file.is_file() and file.suffix.lower() in IMAGE_EXTENSIONS
+        )
+        if count == 0:
+            raise ProfileError(
+                f"No images found for '{username}'. "
+                "The profile may be private or contain only videos."
+            )
+
+        return DownloadResult(count=count, username=username)
 
 
 # ---------------------------------------------------------------------------
@@ -275,24 +270,24 @@ def main() -> None:
         return
 
     # --- Session ---
-    session = InstagramSession()
     try:
-        session.load_session(settings.account_name)
-        print(f"Session loaded successfully for {settings.account_name}!")
+        session = GallerySession(settings.cookies_file)
     except SessionError as e:
         print(f"Session error: {e}")
         return
 
     # --- Wire dependencies ---
-    file_manager = FileManager()
-    rate_limiter = RateLimiter()
-    scraper = ScraperService(session, rate_limiter)
+    file_manager = FileManager('gallery-dl/downloads')
+    scraper = ScraperService(session)
 
     # --- Profile ---
     try:
-        profile = scraper.get_profile(settings.target_username)
+        scraper.get_profile(settings.target_username)
     except ProfileError as e:
         print(f"Profile error: {e}")
+        return
+    except SessionError as e:
+        print(f"Session error: {e}")
         return
 
     # --- User input ---
@@ -305,16 +300,16 @@ def main() -> None:
     # --- Download ---
     target_dir = file_manager.prepare(settings.target_username)
     try:
-        result = scraper.download(profile, target_dir, max_images)
+        result = scraper.download(settings.target_username, target_dir, max_images)
         print(
             f"\nSuccessfully downloaded {result.count} image(s) "
             f"from {result.username}."
         )
         FileManager.remove_captions(target_dir)
         print("Caption files cleaned up. Done.")
-    except ScraperError as e:
+    except (ProfileError, SessionError, ScraperError) as e:
         print(f"Download error: {e}")
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
